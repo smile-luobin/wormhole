@@ -1,0 +1,7 @@
+[gerrit]  
+host=202.96.135.238  
+port=39418  
+project=wormhole  
+defaultbranch=master  
+defaultremote=gerrit  
+defaultrebase=0  

@@ -1,0 +1,6 @@
+#!/bin/bash
+sleeptime=1
+( for((i=0;i<60;i+=sleeptime)) ; do
+  service docker status | grep start && mount |grep /docker &&  docker images |grep ubuntu-upstart && ! pgrep -fl '/usr/bin/python /usr/bin/wormhole-api' && (  echo starting wormhole-api $(date) >> /var/log/wormhole_dog.log; wormhole-api >/dev/null 2>&1 &) && sleeptime=5;
+  sleep $sleeptime
+done &) 
