@@ -1,0 +1,59 @@
+SCANINTERVAL=1s
+DOCKER_DIR=/docker
+
+LINK_DIR=/home/.by-volume-id
+LINK_MAIN_DEVICE_NAME=docker-data-device-link
+LINK_MAIN_FILE="$LINK_DIR/$LINK_MAIN_DEVICE_NAME"
+
+IMAGE_FILE=/home/ubuntu-upstart.tar
+IMAGE_NAME=ubuntu-upstart
+
+LOG_FILE=/var/log/docker_start.log
+
+exec >> $LOG_FILE 2>&1
+echo "start docker $(date)"
+
+mkdir $LINK_DIR 2>/dev/null
+mkdir $DOCKER_DIR 2>/dev/null
+service docker stop
+
+first_disk=$(readlink -f "$LINK_MAIN_FILE")
+[ -b "$first_disk" ]  || {
+        # remove the link
+  [ -h "$LINK_MAIN_FILE" ] && rm "$LINK_MAIN_FILE"
+  echo "scaning host disk:"
+  while :; do
+     for s in /sys/class/scsi_host/host*/scan; do 
+         echo "- - -" > "$s"
+     done
+     first_disk=/dev/$(lsblk -d -o 'NAME,TYPE' | awk 'NR>1&&$NF=="disk"&&$1!~"xvda$|sda$"&&NF=1{print;exit }')
+     [ -b "$first_disk" ] && ! mount | grep "$first_disk" && break
+     sleep $SCANINTERVAL
+  done
+  lsblk
+  echo found data disk $first_disk
+}
+
+mount $first_disk $DOCKER_DIR 2>&1 | grep 'you must specify the filesystem type' && {
+  # format the device
+  echo format $first_disk mkfs.ext4 -F $first_disk
+  mkfs.ext4 -F $first_disk
+  ln -sf $first_disk $LINK_MAIN_FILE
+  mount $first_disk $DOCKER_DIR
+}
+
+
+awk -v d="$DOCKER_DIR" '!/^DOCKER_OPTS/;END{print "DOCKER_OPTS=\"--debug --graph="d"\""}' /etc/default/docker > /tmp/.$$ && mv /tmp/.$$ /etc/default/docker || rm /tmp/.$$
+
+mount | grep "$DOCKER_DIR" && {
+
+  echo start docker
+  service docker restart && {
+    echo docker restart on $DOCKER_DIR successfully
+    ! docker images | grep $IMAGE_NAME  && docker load --input $IMAGE_FILE && docker images | grep $IMAGE_NAME && {
+      echo docker import image $IMAGE_NAME from $IMAGE_FILE successfully
+    }
+  }
+  service docker status | grep start  && ( wormhole-api >/dev/null 2>&1 &)
+}
+true

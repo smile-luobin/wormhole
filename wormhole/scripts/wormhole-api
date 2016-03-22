@@ -1,0 +1,9 @@
+#!/usr/bin/python
+import sys
+sys.path.append("/home/")
+#sys.path.append("/home/llhuii/openstack")
+
+from wormhole import server
+
+if __name__ == "__main__":
+    sys.exit(server.main('wormhole'))
