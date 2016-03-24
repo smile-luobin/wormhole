@@ -149,7 +149,6 @@ class ContainerController(wsgi.Application):
         if volume_id:
             # Create VM from volume, create a symbolic link for the device.
             LOG.info("create new container from volume %s", volume_id)
-            import pdb;pdb.set_trace()
             volume.add_root_mapping(volume_id)
             pass
         try:
@@ -264,6 +263,22 @@ class ContainerController(wsgi.Application):
             self.vif_driver.attach(vif, instance, container_id, new_remote_name)
         return webob.Response(status_int=200)
 
+    def inject_files(self, request, inject_files):
+        LOG.debug("inject files %s", inject_files)
+        for (path, contents) in inject_files:
+            # Ensure the parent dir of injecting file exists
+            parent_dir = os.path.dirname(path)
+            container_id = self.container['id']
+
+            # TODO For docker container the address is modified
+            if (len(parent_dir) > 0 and os.path.isdir(parent_dir)):
+                injected = False
+                with open(path, "wb") as dst:
+                    dst.write(contents)
+                injected = True
+                if not injected:
+                    raise exception.InjectFailed(path=path)
+        return webob.Response(status_int=200)
 
 def create_router(mapper):
     controller = ContainerController()
@@ -291,4 +306,8 @@ def create_router(mapper):
     mapper.connect('/container/detach-interface',
                    controller=controller,
                    action='detach_interface',
+                   conditions=dict(method=['POST']))
+    mapper.connect('/container/inject-files',
+                   controller=controller,
+                   action='inject_files',
                    conditions=dict(method=['POST']))

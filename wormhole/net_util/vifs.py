@@ -104,8 +104,7 @@ class DockerGenericVIFDriver(object):
                                        vm_port_name, run_as_root=True))
             utils.execute('ip', 'link', 'set', br_name, 'up', run_as_root=True)
 
-            if not linux_net.device_exists(vm_port_name):
-                utils.execute('brctl', 'addif', br_name, vm_port_name,
+            utils.execute('brctl', 'addif', br_name, vm_port_name,
                                 run_as_root=True)
 
             # veth

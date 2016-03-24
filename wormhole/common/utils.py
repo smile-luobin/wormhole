@@ -1,11 +1,15 @@
 """Utilities and helper functions."""
 
-import re
+import math
+
 from wormhole import exception
 from wormhole.i18n import _
 from wormhole.common import jsonutils
 from wormhole.common import processutils
 from wormhole.common import excutils
+from wormhole.common import strutils
+from wormhole.common import units
+from wormhole.common import timeutils
 from wormhole.common import log as logging
 
 from oslo.config import cfg
@@ -21,40 +25,6 @@ utils_opt = [
 CONF.register_opts(utils_opt)
 
 LOG = logging.getLogger(__name__)
-
-class LazyPluggable(object):
-    """A pluggable backend loaded lazily based on some value."""
-
-    def __init__(self, pivot, config_group=None, **backends):
-        self.__backends = backends
-        self.__pivot = pivot
-        self.__backend = None
-        self.__config_group = config_group
-
-    def __get_backend(self):
-        if not self.__backend:
-            if self.__config_group is None:
-                backend_name = CONF[self.__pivot]
-            else:
-                backend_name = CONF[self.__config_group][self.__pivot]
-            if backend_name not in self.__backends:
-                msg = _('Invalid backend: %s') % backend_name
-                raise exception.GWException(msg)
-
-            backend = self.__backends[backend_name]
-            if isinstance(backend, tuple):
-                name = backend[0]
-                fromlist = backend[1]
-            else:
-                name = backend
-                fromlist = backend
-
-            self.__backend = __import__(name, None, None, fromlist)
-        return self.__backend
-
-    def __getattr__(self, key):
-        backend = self.__get_backend()
-        return getattr(backend, key)
 
 class UndoManager(object):
     """Provides a mechanism to facilitate rolling back a series of actions
@@ -81,7 +51,6 @@ class UndoManager(object):
                 LOG.exception(msg, **kwargs)
 
             self._rollback()
-
 
 class SmarterEncoder(jsonutils.json.JSONEncoder):
     """Help for JSON encoding dict-like objects."""
@@ -121,3 +90,86 @@ def execute(*cmd, **kwargs):
 
 def trycmd(*cmd, **kwargs):
     return processutils.execute(*cmd, **kwargs)
+
+
+def _calculate_count(size_in_m, blocksize):
+
+    # Check if volume_dd_blocksize is valid
+    try:
+        # Rule out zero-sized/negative/float dd blocksize which
+        # cannot be caught by strutils
+        if blocksize.startswith(('-', '0')) or '.' in blocksize:
+            raise ValueError
+        bs = strutils.string_to_bytes('%sB' % blocksize)
+    except ValueError:
+        msg = (_("Incorrect value error: %(blocksize)s, "
+                 "it may indicate that \'volume_dd_blocksize\' "
+                 "was configured incorrectly. Fall back to default.")
+               % {'blocksize': blocksize})
+        LOG.warn(msg)
+        # Fall back to default blocksize
+        CONF.clear_override('volume_dd_blocksize')
+        blocksize = CONF.volume_dd_blocksize
+        bs = strutils.string_to_bytes('%sB' % blocksize)
+
+    print(size_in_m, units.Mi, bs)
+    count = math.ceil(size_in_m * units.Mi / bs)
+
+    return blocksize, int(count)
+
+def check_for_odirect_support(src, dest, flag='oflag=direct'):
+
+    # Check whether O_DIRECT is supported
+    try:
+        execute('dd', 'count=0', 'if=%s' % src, 'of=%s' % dest,
+                      flag, run_as_root=True)
+        return True
+    except processutils.ProcessExecutionError:
+        return False
+
+
+def copy_volume(srcstr, deststr, size_in_m, blocksize, sync=False, ionice=None):
+    # Use O_DIRECT to avoid thrashing the system buffer cache
+    extra_flags = []
+    if check_for_odirect_support(srcstr, deststr, 'iflag=direct'):
+        extra_flags.append('iflag=direct')
+
+    if check_for_odirect_support(srcstr, deststr, 'oflag=direct'):
+        extra_flags.append('oflag=direct')
+
+    # If the volume is being unprovisioned then
+    # request the data is persisted before returning,
+    # so that it's not discarded from the cache.
+    if sync and not extra_flags:
+        extra_flags.append('conv=fdatasync')
+
+    blocksize, count = _calculate_count(size_in_m, blocksize)
+
+    cmd = ['dd', 'if=%s' % srcstr, 'of=%s' % deststr,
+           'count=%d' % count, 'bs=%s' % blocksize]
+    cmd.extend(extra_flags)
+
+    if ionice is not None:
+        cmd = ['ionice', ionice] + cmd
+
+
+    # Perform the copy
+    start_time = timeutils.utcnow()
+    # cmd = ['sleep', '20']
+    execute(*cmd, run_as_root=True)
+    duration = timeutils.delta_seconds(start_time, timeutils.utcnow())
+
+    # NOTE(jdg): use a default of 1, mostly for unit test, but in
+    # some incredible event this is 0 (cirros image?) don't barf
+    if duration < 1:
+        duration = 1
+    mbps = (size_in_m / duration)
+    mesg = ("Volume copy details: src %(src)s, dest %(dest)s, "
+            "size %(sz).2f MB, duration %(duration).2f sec")
+    LOG.debug(mesg % {"src": srcstr,
+                      "dest": deststr,
+                      "sz": size_in_m,
+                      "duration": duration})
+    mesg = _("Volume copy %(size_in_m).2f MB at %(mbps).2f MB/s")
+    LOG.info(mesg % {'size_in_m': size_in_m, 'mbps': mbps})
+

@@ -1,7 +1,9 @@
 import webob
 from wormhole import exception
 from wormhole import wsgi
+from wormhole.tasks import addtask
 from wormhole.common import utils
+from wormhole.common import units
 
 from oslo.config import cfg
 from wormhole.common import log
@@ -10,13 +12,17 @@ import functools
 import uuid
 import os
 
+
 CONF = cfg.CONF
 LOG = log.getLogger(__name__)
 
 volume_opts = [
     cfg.StrOpt('device_symbolic_directory',
-               default="/home/.by-volume-id",
+               default='/home/.by-volume-id',
                help='Path to use as the volume mapping.'),
+    cfg.StrOpt('volume_dd_blocksize',
+               default='1M',
+               help='The default block size used when copying volume'),
 ]
 
 CONF.register_opts(volume_opts)
@@ -25,11 +31,14 @@ LINK_DIR = "/home/.by-volume-id"
 DOCKER_LINK_NAME = "docker-data-device-link"
 DEV_DIRECTORY = "/dev/"
 
+def volume_link_path(volume_id):
+    return os.path.sep.join([LINK_DIR, volume_id])
+
 def create_symbolic(dev_path, volume_id):
-    utils.trycmd('ln', '-sf', dev_path, LINK_DIR + os.path.sep + volume_id)
+    utils.trycmd('ln', '-sf', dev_path, volume_link_path(volume_id))
 
 def remove_symbolic(volume_id):
-    link_file = LINK_DIR + os.path.sep + volume_id
+    link_file = volume_link_path(volume_id)
     if os.path.islink(link_file):
         os.remove(link_file)
 
@@ -42,53 +51,6 @@ def check_for_odirect_support(src, dest, flag='oflag=direct'):
         return True
     except processutils.ProcessExecutionError:
         return False
-
-
-def copy_volume(srcstr, deststr, size_in_m, blocksize, sync=False,
-                execute=utils.execute, ionice=None):
-    # Use O_DIRECT to avoid thrashing the system buffer cache
-    extra_flags = []
-    if check_for_odirect_support(srcstr, deststr, 'iflag=direct'):
-        extra_flags.append('iflag=direct')
-
-    if check_for_odirect_support(srcstr, deststr, 'oflag=direct'):
-        extra_flags.append('oflag=direct')
-
-    # If the volume is being unprovisioned then
-    # request the data is persisted before returning,
-    # so that it's not discarded from the cache.
-    if sync and not extra_flags:
-        extra_flags.append('conv=fdatasync')
-
-    blocksize, count = _calculate_count(size_in_m, blocksize)
-
-    cmd = ['dd', 'if=%s' % srcstr, 'of=%s' % deststr,
-           'count=%d' % count, 'bs=%s' % blocksize]
-    cmd.extend(extra_flags)
-
-    if ionice is not None:
-        cmd = ['ionice', ionice] + cmd
-
-
-    # Perform the copy
-    start_time = timeutils.utcnow()
-    execute(*cmd, run_as_root=True)
-    duration = timeutils.delta_seconds(start_time, timeutils.utcnow())
-
-    # NOTE(jdg): use a default of 1, mostly for unit test, but in
-    # some incredible event this is 0 (cirros image?) don't barf
-    if duration < 1:
-        duration = 1
-    mbps = (size_in_m / duration)
-    mesg = ("Volume copy details: src %(src)s, dest %(dest)s, "
-            "size %(sz).2f MB, duration %(duration).2f sec")
-    LOG.debug(mesg % {"src": srcstr,
-                      "dest": deststr,
-                      "sz": size_in_m,
-                      "duration": duration})
-    mesg = _("Volume copy %(size_in_m).2f MB at %(mbps).2f MB/s")
-    LOG.info(mesg % {'size_in_m': size_in_m, 'mbps': mbps})
-
 
 class VolumeController(wsgi.Application):
 
@@ -106,7 +68,7 @@ class VolumeController(wsgi.Application):
             return
 
         for link in os.listdir(LINK_DIR):
-            link_path = LINK_DIR + os.path.sep + link
+            link_path = volume_link_path(link)
             if os.path.islink(link_path):
                 realpath = os.path.realpath(link_path)
                 if realpath.startswith(DEV_DIRECTORY):
@@ -131,22 +93,37 @@ class VolumeController(wsgi.Application):
             utils.trycmd("bash", "-c", "for f in /sys/class/scsi_host/host*/scan; do echo '- - -' > $f; done")
         return self.list_host_device()
 
-    def add_mapping(self, volume, mountpoint, device=''):
+    def add_mapping(self, volume_id, mountpoint, device=''):
         if not device:
-            link_file = LINK_DIR + os.path.sep + volume
+            link_file = volume_link_path(volume_id)
             if os.path.islink(link_file):
                 device = os.path.realpath(link_file)
             else:
-                LOG.warn("can't find the device of volume %s when attaching volume", volume)
+                LOG.warn("can't find the device of volume %s when attaching volume", volume_id)
                 return
         else:
             if not device.startswith(DEV_DIRECTORY):
                 device = DEV_DIRECTORY + device
-            create_symbolic(device, volume)
-        self.volume_device_mapping[volume] = device
+            create_symbolic(device, volume_id)
+        self.volume_device_mapping[volume_id] = device
+
+    def get_device(self, volume_id):
+        device = self.volume_device_mapping.get(volume_id)
+        if not device:
+            LOG.warn("can't found mapping for volume %s", volume_id)
+            link_path = volume_link_path(volume_id)
+            if os.path.islink(link_path):
+                realpath = os.path.realpath(link_path)
+                if realpath.startswith(DEV_DIRECTORY):
+                    self.volume_device_mapping[volume_id] = realpath
+                    device = realpath
+        if not device:
+            raise exception.VolumeNotFound(id=volume_id)
+        LOG.debug("found volume mapping: %s ==> %s", volume_id, device)
+        return device
 
     def add_root_mapping(self, volume_id):
-        root_dev_path = os.path.realpath(LINK_DIR + os.path.sep + DOCKER_LINK_NAME)
+        root_dev_path = os.path.realpath(volume_link_path(DOCKER_LINK_NAME))
         self.add_mapping(volume_id, "/docker", root_dev_path)
 
     def remove_mapping(self, volume):
@@ -165,6 +142,17 @@ class VolumeController(wsgi.Application):
         self.remove_mapping(volume)
         return webob.Response(status_int=200)
 
+    def clone_volume(self, request, volume, src_vref):
+        LOG.debug("clone volume %s, src_vref %s", volume, src_vref)
+        srcstr = self.get_device(src_vref["id"])
+        dststr = self.get_device(volume["id"])
+        size_in_g = min(int(src_vref['size']), int(volume['size']))
+
+        clone_callback = functools.partial(utils.copy_volume, srcstr, dststr, size_in_g*units.Ki, CONF.volume_dd_blocksize)
+        task_id = addtask(clone_callback)
+
+        return {"task_id": task_id }
+
 
 def create_router(mapper):
     global controller
@@ -176,6 +164,10 @@ def create_router(mapper):
     mapper.connect('/volumes/detach',
                    controller=controller,
                    action='detach_volume',
+                   conditions=dict(method=['POST']))
+    mapper.connect('/volumes/clone',
+                   controller=controller,
+                   action='clone_volume',
                    conditions=dict(method=['POST']))
     mapper.connect('/volumes/attach',
                    controller=controller,

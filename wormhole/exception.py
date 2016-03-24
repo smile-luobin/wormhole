@@ -18,14 +18,6 @@ exc_log_opts = [
 CONF = cfg.CONF
 CONF.register_opts(exc_log_opts)
 
-class ConvertedException(webob.exc.WSGIHTTPException):
-    def __init__(self, code=0, title="", explanation=""):
-        self.code = code
-        self.title = title
-        self.explanation = explanation
-        super(ConvertedException, self).__init__()
-
-
 def _cleanse_dict(original):
     """Strip all admin_password, new_pass, rescue_pass keys from a dict."""
     return dict((k, v) for k, v in original.iteritems() if "_pass" not in k)
@@ -44,9 +36,8 @@ class HyperserviceException(Exception):
     safe = False
     title = ''
 
-    def __init__(self, message=None, code=500, title='', **kwargs):
+    def __init__(self, message=None, title='', **kwargs):
         self.kwargs = kwargs
-        self.code = code
         self.title = title
 
         if 'code' not in self.kwargs:
@@ -135,6 +126,14 @@ class ImageNotFound(NotFound):
 class ContainerNotFound(NotFound):
     title = "Container Not Found"
     msg_fmt = _("No Container Found.")
+
+class VolumeNotFound(NotFound):
+    title = "Volume Not Found"
+    msg_fmt = _("VolumeTask %(id) Not Found.")
+
+class TaskNotFound(NotFound):
+    title = "Task Not Found"
+    msg_fmt = _("Task %(id)s Not Found.")
 
 class ContainerCreateFailed(HyperserviceException):
     msg_fmt = _("Unable to create Container")
