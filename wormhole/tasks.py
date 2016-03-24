@@ -76,13 +76,3 @@ def create_router(mapper):
                    controller=controller,
                    action='query',
                    conditions=dict(method=['GET']))
-def test_001():
-    callback = utils.execute
-
-    t = Thread(callback, "sleep", "10")
-    t.start()
-    print "good", t.done()
-    callback("sleep", "1")
-    print "good 0", t.done()
-    callback("sleep", "10")
-    print "good 0", t.done()

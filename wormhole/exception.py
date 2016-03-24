@@ -129,7 +129,7 @@ class ContainerNotFound(NotFound):
 
 class VolumeNotFound(NotFound):
     title = "Volume Not Found"
-    msg_fmt = _("VolumeTask %(id) Not Found.")
+    msg_fmt = _("VolumeTask %(id)s Not Found.")
 
 class TaskNotFound(NotFound):
     title = "Task Not Found"
