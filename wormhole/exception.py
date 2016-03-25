@@ -146,4 +146,4 @@ class ContainerStartFailed(HyperserviceException):
     msg_fmt = _("Unable to start Container")
 
 class InjectFailed(HyperserviceException):
-    msg_fmt = _("Inject file %(path)s failed")
+    msg_fmt = _("Inject file %(path)s failed: %(reason)s")

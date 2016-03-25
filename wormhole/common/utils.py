@@ -155,7 +155,6 @@ def copy_volume(srcstr, deststr, size_in_m, blocksize, sync=False, ionice=None):
 
     # Perform the copy
     start_time = timeutils.utcnow()
-    # cmd = ['sleep', '20']
     execute(*cmd, run_as_root=True)
     duration = timeutils.delta_seconds(start_time, timeutils.utcnow())
 

@@ -16,10 +16,14 @@ import uuid
 import inspect
 import six
 import os
+import base64
+import tempfile
+import tarfile
+import StringIO
 
 from oslo.config import cfg
 
-from docker import errors
+from docker import errors as dockerErrors
 
 
 CONF = cfg.CONF
@@ -264,20 +268,47 @@ class ContainerController(wsgi.Application):
         return webob.Response(status_int=200)
 
     def inject_files(self, request, inject_files):
-        LOG.debug("inject files %s", inject_files)
-        for (path, contents) in inject_files:
-            # Ensure the parent dir of injecting file exists
-            parent_dir = os.path.dirname(path)
-            container_id = self.container['id']
+        container_id = self.container['id']
 
-            # TODO For docker container the address is modified
-            if (len(parent_dir) > 0 and os.path.isdir(parent_dir)):
-                injected = False
-                with open(path, "wb") as dst:
-                    dst.write(contents)
-                injected = True
-                if not injected:
-                    raise exception.InjectFailed(path=path)
+        # docker client API just accept tar data
+        fd, name = tempfile.mkstemp(suffix=".tar")
+        try:
+            for (path, content_base64) in inject_files:
+                # Ensure the parent dir of injecting file exists
+                dirname = os.path.dirname(path)
+                if not dirname:
+                    dirname = '/'
+
+                filename = os.path.basename(path)
+
+                content = base64.b64decode(content_base64)
+                LOG.debug("inject file %s, content: len = %d, partial = %s", path, len(content), content[:30])
+
+                # ugly but works
+                _tarinfo =  tarfile.TarInfo(filename)
+                _tarinfo.size = len(content)
+                _tar = tarfile.TarFile(name, "w")
+                _tar.addfile(_tarinfo, StringIO.StringIO(content))
+                _tar.close()
+
+                os.lseek(fd, 0, os.SEEK_SET)
+                tar_content = os.read(fd, 1<<30)
+                # TODO: file already exists in the container, need to backup?
+                self.docker.put_archive(container_id, dirname, tar_content)
+
+        except TypeError as e: # invalid base64 encode
+            LOG.exception(e)
+            raise exception.InjectFailed(path=path, reason="contents %s" % e.message)
+        except dockerErrors.NotFound as e:
+            LOG.exception(e)
+            raise exception.InjectFailed(path=path, reason="dir " + dirname + " not found")
+        except Exception as e:
+            LOG.exception(e)
+            raise exception.InjectFailed(path='', reason=str(e.message))
+        finally:
+            LOG.debug("clean temp tar name %d %s", fd, name)
+            os.close(fd)
+            os.remove(name)
         return webob.Response(status_int=200)
 
 def create_router(mapper):
