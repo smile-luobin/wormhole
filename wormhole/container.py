@@ -170,12 +170,12 @@ class ContainerController(wsgi.Application):
             new_remote_name = self._available_eth_name()
             self.vif_driver.attach(vif, instance, container_id, new_remote_name)
 
-    def create(self, request, image_name, volume_id=None, network_info={}, block_device_info={}, inject_files=[], admin_password=None):
+    def create(self, request, image_name, root_volume_id=None, network_info={}, block_device_info={}, inject_files=[], admin_password=None):
         """ create the container. """
-        if volume_id:
+        if root_volume_id:
             # Create VM from volume, create a symbolic link for the device.
-            LOG.info("create new container from volume %s", volume_id)
-            self._add_root_mapping(volume_id)
+            LOG.info("create new container from volume %s", root_volume_id)
+            self._add_root_mapping(root_volume_id)
             pass
         try:
             _ = self.container
