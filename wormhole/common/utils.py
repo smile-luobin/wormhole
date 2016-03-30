@@ -1,6 +1,8 @@
 """Utilities and helper functions."""
 
 import math
+import crypt
+import random
 
 from wormhole import exception
 from wormhole.i18n import _
@@ -172,3 +174,70 @@ def copy_volume(srcstr, deststr, size_in_m, blocksize, sync=False, ionice=None):
     mesg = _("Volume copy %(size_in_m).2f MB at %(mbps).2f MB/s")
     LOG.info(mesg % {'size_in_m': size_in_m, 'mbps': mbps})
 
+def _generate_salt():
+    salt_set = ('abcdefghijklmnopqrstuvwxyz'
+                'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
+                '0123456789./')
+    salt = 16 * ' '
+    return ''.join([random.choice(salt_set) for c in salt])
+
+def set_passwd(username, admin_passwd, passwd_data, shadow_data):
+    """set the password for username to admin_passwd
+
+    The passwd_file is not modified.  The shadow_file is updated.
+    if the username is not found in both files, an exception is raised.
+
+    :param username: the username
+    :param encrypted_passwd: the  encrypted password
+    :param passwd_file: path to the passwd file
+    :param shadow_file: path to the shadow password file
+    :returns: nothing
+    :raises: exception.WormholeException(), IOError()
+
+    """
+
+    # encryption algo - id pairs for crypt()
+    algos = {'SHA-512': '$6$', 'SHA-256': '$5$', 'MD5': '$1$', 'DES': ''}
+
+    salt = _generate_salt()
+
+    # crypt() depends on the underlying libc, and may not support all
+    # forms of hash. We try md5 first. If we get only 13 characters back,
+    # then the underlying crypt() didn't understand the '$n$salt' magic,
+    # so we fall back to DES.
+    # md5 is the default because it's widely supported. Although the
+    # local crypt() might support stronger SHA, the target instance
+    # might not.
+    encrypted_passwd = crypt.crypt(admin_passwd, algos['MD5'] + salt)
+    if len(encrypted_passwd) == 13:
+        encrypted_passwd = crypt.crypt(admin_passwd, algos['DES'] + salt)
+
+    p_file = passwd_data.split("\n")
+    s_file = shadow_data.split("\n")
+
+    # username MUST exist in passwd file or it's an error
+    for entry in p_file:
+        split_entry = entry.split(':')
+        if split_entry[0] == username:
+            break
+    else:
+        msg = _('User %(username)s not found in password file.')
+        raise exception.WormholeException(msg % username)
+
+    # update password in the shadow file.It's an error if the
+    # the user doesn't exist.
+    new_shadow = list()
+    found = False
+    for entry in s_file:
+        split_entry = entry.split(':')
+        if split_entry[0] == username:
+            split_entry[1] = encrypted_passwd
+            found = True
+        new_entry = ':'.join(split_entry)
+        new_shadow.append(new_entry)
+
+    if not found:
+        msg = _('User %(username)s not found in shadow file.')
+        raise exception.WormholeException(msg % username)
+
+    return "\n".join(new_shadow)

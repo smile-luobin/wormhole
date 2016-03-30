@@ -2,7 +2,6 @@ import webob
 
 from wormhole import exception
 from wormhole import wsgi
-from wormhole.volumes import controller as volume
 
 from wormhole.common import log
 from wormhole.common import importutils
@@ -25,13 +24,37 @@ from oslo.config import cfg
 
 from docker import errors as dockerErrors
 
+container_opts = [
+    cfg.StrOpt('container_volume_link_dir', 
+        default="/home/.by-volume-id",
+        help='The dir containing symbolic files named volume-id targeting device path.')
+]
 
 CONF = cfg.CONF
+CONF.register_opts(container_opts)
 
 LOG = log.getLogger(__name__)
 
+
+def volume_link_path(volume_id):
+    return os.path.sep.join([CONF.get('container_volume_link_dir'), volume_id])
+
+def docker_root_path():
+    DOCKER_LINK_NAME = "docker-data-device-link"
+    return volume_link_path(DOCKER_LINK_NAME)
+
+def create_symbolic(device, volume_id):
+    if not device.startswith("/dev/"):
+        device = "/dev/" + device
+    utils.trycmd('ln', '-sf', device, volume_link_path(volume_id))
+
+def remove_symbolic(volume_id):
+    link_file = volume_link_path(volume_id)
+    if os.path.islink(link_file):
+        os.remove(link_file)
+
 class ContainerController(wsgi.Application):
-        
+
     def __init__(self):
         self._docker = None
         self._container = None
@@ -71,7 +94,6 @@ class ContainerController(wsgi.Application):
     def container(self):
         if self._container is None:
             containers = self.docker.containers(all=True)
-            # containers = self.docker.containers(quiet=True, all=True)
             if not containers:
                 LOG.error("No containers exists!")
                 raise exception.ContainerNotFound()
@@ -87,7 +109,7 @@ class ContainerController(wsgi.Application):
                 LOG.debug("attach block device mapping %s", bdm)
                 mount_device = bdm['mount_device']
                 volume_id = bdm['connection_info']['data']['volume_id']
-                volume.add_mapping(volume_id, mount_device)
+                self._add_mapping(volume_id, mount_device, bdm.get('real_device', ''))
 
     def plug_vifs(self, network_info):
         """Plug VIFs into networks."""
@@ -148,20 +170,24 @@ class ContainerController(wsgi.Application):
             new_remote_name = self._available_eth_name()
             self.vif_driver.attach(vif, instance, container_id, new_remote_name)
 
-    def create(self, request, image_name, volume_id=None):
+    def create(self, request, image_name, volume_id=None, network_info={}, block_device_info={}, inject_files=[], admin_password=None):
         """ create the container. """
         if volume_id:
             # Create VM from volume, create a symbolic link for the device.
             LOG.info("create new container from volume %s", volume_id)
-            volume.add_root_mapping(volume_id)
+            self._add_root_mapping(volume_id)
             pass
         try:
             _ = self.container
             LOG.warn("Already a container exists")
             return None
-            # raise exception.ContainerExists()
         except exception.ContainerNotFound:
-            return self.docker.create_container(image_name, network_disabled=True)
+            self.docker.create_container(image_name, network_disabled=True)
+            if admin_password is not None:
+                self._inject_password(admin_password)
+            if inject_files:
+                self._inject_files(inject_files, plain=True)
+            return None
 
     def start(self, request, network_info={}, block_device_info={}):
         """ Start the container. """
@@ -182,7 +208,7 @@ class ContainerController(wsgi.Application):
                 self._attach_bdm(block_device_info)
             except Exception as e:
                 pass
-                                                  
+
     def _stop(self, container_id, timeout=5):
         try:
             self.docker.stop(container_id, max(timeout, 5))
@@ -267,7 +293,7 @@ class ContainerController(wsgi.Application):
             self.vif_driver.attach(vif, instance, container_id, new_remote_name)
         return webob.Response(status_int=200)
 
-    def inject_files(self, request, inject_files):
+    def _inject_files(self, inject_files, plain=False):
         container_id = self.container['id']
 
         # docker client API just accept tar data
@@ -281,7 +307,7 @@ class ContainerController(wsgi.Application):
 
                 filename = os.path.basename(path)
 
-                content = base64.b64decode(content_base64)
+                content = content_base64 if plain else base64.b64decode(content_base64)
                 LOG.debug("inject file %s, content: len = %d, partial = %s", path, len(content), content[:30])
 
                 # ugly but works
@@ -309,7 +335,96 @@ class ContainerController(wsgi.Application):
             LOG.debug("clean temp tar name %d %s", fd, name)
             os.close(fd)
             os.remove(name)
+
+    def inject_files(self, request, inject_files):
+        self._inject_files(inject_files, plain=True)
         return webob.Response(status_int=200)
+
+
+    def _read_file(self, path):
+        """ Read container path content. """
+        archive = self.docker.get_archive(self.container['id'], path)
+        resp = archive[0]
+        tar = tarfile.TarFile(fileobj=StringIO.StringIO(resp.data))
+        fileobj = tar.extractfile(os.path.basename(path))
+        tar.close()
+        if fileobj:
+            content = fileobj.read()
+            fileobj.close()
+            return content
+        return ''
+
+
+    def _inject_password(self, admin_password):
+        """Set the root password to admin_passwd
+        """
+        # The approach used here is to copy the password and shadow
+        # files from the instance filesystem to local files, make any
+        # necessary changes, and then copy them back.
+
+        LOG.debug("Inject admin password admin_passwd=<SANITIZED>")
+        admin_user = 'root'
+
+        passwd_path = os.path.join('/etc', 'passwd')
+        shadow_path = os.path.join('/etc', 'shadow')
+
+        passwd_data = self._read_file(passwd_path)
+        shadow_data = self._read_file(shadow_path)
+
+        new_shadow_data = utils.set_passwd(admin_user, admin_password,
+                                      passwd_data, shadow_data)
+        self._inject_files([(shadow_path, new_shadow_data)], plain=True)
+
+    def inject_password(self, request, admin_password):
+        """ Modify root password. """
+        admin_password = base64.b64decode(admin_password)
+        self._inject_password(admin_password)
+
+    def _add_mapping(self, volume_id, mountpoint, device=''):
+        if not device:
+            link_file = volume_link_path(volume_id)
+            if os.path.islink(link_file):
+                device = os.path.realpath(link_file)
+            else:
+                LOG.warn("can't find the device of volume %s when attaching volume", volume_id)
+                return
+        else:
+            create_symbolic(device, volume_id)
+
+    def attach_volume(self, request, volume, device, mount_device):
+        """ attach volume. """
+        LOG.debug("attach volume %s : device %s, mountpoint %s", volume, device, mount_device)
+        self._add_mapping(volume, mount_device, device)
+        return None
+
+    def detach_volume(self, request, volume):
+        LOG.debug("dettach volume %s", volume)
+        self._remove_mapping(volume)
+        return webob.Response(status_int=200)
+
+    def _add_root_mapping(self, volume_id):
+        root_dev_path = os.path.realpath(docker_root_path())
+        self._add_mapping(volume_id, "/docker", root_dev_path)
+
+    def _remove_mapping(self, volume):
+        remove_symbolic(volume)
+
+    def create_image(self, request, image_id):
+        """ Create a image from the container. """
+        return None
+
+    def pause(self, request):
+        self.docker.pause(self.container['id'])
+
+    def unpause(self, request):
+        self.docker.unpause(self.container['id'])
+
+    def console_output(self, request):
+        return { "logs": self.docker.logs(self.container['id']) }
+
+    def status(self, request):
+        container = self.docker.containers(all=True)[0]
+        return { "status": container['status'] }
 
 def create_router(mapper):
     controller = ContainerController()
@@ -338,7 +453,44 @@ def create_router(mapper):
                    controller=controller,
                    action='detach_interface',
                    conditions=dict(method=['POST']))
+
     mapper.connect('/container/inject-files',
                    controller=controller,
                    action='inject_files',
                    conditions=dict(method=['POST']))
+    mapper.connect('/container/admin-password',
+                   controller=controller,
+                   action='inject_password',
+                   conditions=dict(method=['POST']))
+
+    mapper.connect('/container/detach-volume',
+                   controller=controller,
+                   action='detach_volume',
+                   conditions=dict(method=['POST']))
+    mapper.connect('/container/attach-volume',
+                   controller=controller,
+                   action='attach_volume',
+                   conditions=dict(method=['POST']))
+
+    mapper.connect('/container/create-image',
+                   controller=controller,
+                   action='create_image',
+                   conditions=dict(method=['POST']))
+
+    mapper.connect('/container/pause',
+                   controller=controller,
+                   action='pause',
+                   conditions=dict(method=['POST']))
+    mapper.connect('/container/unpause',
+                   controller=controller,
+                   action='unpause',
+                   conditions=dict(method=['POST']))
+
+    mapper.connect('/container/console-output',
+                   controller=controller,
+                   action='console_output',
+                   conditions=dict(method=['GET']))
+    mapper.connect('/container/status',
+                   controller=controller,
+                   action='status',
+                   conditions=dict(method=['GET']))

@@ -5,7 +5,7 @@ import sys
 from oslo.config import cfg
 from oslo import messaging
 
- 
+
 from wormhole import exception
 from wormhole.i18n import _
 from wormhole.common import log as logging

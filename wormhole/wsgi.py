@@ -650,7 +650,6 @@ class Loader(object):
         elif os.path.exists(config_path):
             self.config_path = config_path
 
-        
         if not self.config_path:
             raise exception.ConfigNotFound(path=config_path)
 
@@ -1165,7 +1164,7 @@ class Application(BaseApplication):
 
         try:
             result = method(req, **params)
-        except exception.HyperserviceException as e:
+        except exception.WormholeException as e:
             LOG.exception(e)
             return render_exception(e)
 

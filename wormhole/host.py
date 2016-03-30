@@ -15,7 +15,7 @@ CONF = cfg.CONF
 
 
 class HostController(wsgi.Application):
-        
+
     def list_volume(self, request):
         return {}
 

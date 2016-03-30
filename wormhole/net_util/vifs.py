@@ -53,14 +53,14 @@ class DockerGenericVIFDriver(object):
                    'vif': vif})
 
         if vif_type is None:
-            raise exception.HyperserviceException(
+            raise exception.WormholeException(
                 _("vif_type parameter must be present "
                   "for this vif_driver implementation"))
 
         if vif_type == network_model.VIF_TYPE_OVS:
             self.plug_ovs_hybrid(instance, vif)
         else:
-            raise exception.HyperserviceException(
+            raise exception.WormholeException(
                 _("Unexpected vif_type=%s") % vif_type)
 
     def plug_ovs_hybrid(self, instance, vif):
@@ -136,14 +136,14 @@ class DockerGenericVIFDriver(object):
                    'vif': vif})
 
         if vif_type is None:
-            raise exception.HyperserviceException(
+            raise exception.WormholeException(
                 _("vif_type parameter must be present "
                   "for this vif_driver implementation"))
 
         if vif_type == network_model.VIF_TYPE_OVS:
             self.unplug_ovs_hybrid(instance, vif)
         else:
-            raise exception.HyperserviceException(
+            raise exception.WormholeException(
                 _("Unexpected vif_type=%s") % vif_type)
 
     def unplug_ovs_hybrid(self, instance, vif):

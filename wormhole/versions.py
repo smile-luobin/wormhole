@@ -12,7 +12,7 @@ class Versions(wsgi.Application):
                   "versions": 
                       [ { "status": "CURRENT", "id": "v1.0" } ]
         }
-            
+
     @webob.dec.wsgify()
     def __call__(self, request):
         # TODO

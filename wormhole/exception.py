@@ -22,8 +22,8 @@ def _cleanse_dict(original):
     """Strip all admin_password, new_pass, rescue_pass keys from a dict."""
     return dict((k, v) for k, v in original.iteritems() if "_pass" not in k)
 
-class HyperserviceException(Exception):
-    """Base Hyperservice Exception
+class WormholeException(Exception):
+    """Base Wormhole Exception
 
     To correctly use this class, inherit from it and define
     a 'msg_fmt' property. That msg_fmt will get printf'd
@@ -64,15 +64,14 @@ class HyperserviceException(Exception):
                     # at least get the core message out if something happened
                     message = self.msg_fmt
 
-        super(HyperserviceException, self).__init__(message)
+        super(WormholeException, self).__init__(message)
 
     def format_message(self):
         # NOTE(mrodden): use the first argument to the python Exception object
-        # which should be our full HyperserviceException message, (see __init__)
+        # which should be our full WormholeException message, (see __init__)
         return self.args[0]
 
-        
-class ValidationError(HyperserviceException):
+class ValidationError(WormholeException):
     msg_fmt = _("Expecting to find %(attribute)s in %(target)s -"
                        " the server could not comply with the request"
                        " since it is either malformed or otherwise"
@@ -80,15 +79,15 @@ class ValidationError(HyperserviceException):
     code = 400
     title = 'Bad Request'
 
-class Invalid(HyperserviceException):
+class Invalid(WormholeException):
     msg_fmt = _("Unacceptable parameters.")
     code = 400
 
-class Forbidden(HyperserviceException):
+class Forbidden(WormholeException):
     msg_fmt = _("Not authorized.")
     code = 403
 
-class UnexpectedError(HyperserviceException):
+class UnexpectedError(WormholeException):
     msg_fmt = _("Unexpected Error.")
     code = 500
 
@@ -105,18 +104,18 @@ class InvalidID(Invalid):
     title = "Invalid Id"
     msg_fmt = _("Invalid ID received %(id)s.")
 
-class NotFound(HyperserviceException):
+class NotFound(WormholeException):
     title = "Not Found"
     msg_fmt = _("Resource could not be found.")
     code = 404
 
-class ConfigNotFound(HyperserviceException):
+class ConfigNotFound(WormholeException):
     msg_fmt = _("Could not find config at %(path)s")
 
-class PasteAppNotFound(HyperserviceException):
+class PasteAppNotFound(WormholeException):
     msg_fmt = _("Could not load paste app '%(name)s' from %(path)s")
 
-class MalformedRequestBody(HyperserviceException):
+class MalformedRequestBody(WormholeException):
     msg_fmt = _("Malformed message body: %(reason)s")
 
 class ImageNotFound(NotFound):
@@ -129,21 +128,21 @@ class ContainerNotFound(NotFound):
 
 class VolumeNotFound(NotFound):
     title = "Volume Not Found"
-    msg_fmt = _("VolumeTask %(id)s Not Found.")
+    msg_fmt = _("Volume %(id)s Not Found.")
 
 class TaskNotFound(NotFound):
     title = "Task Not Found"
     msg_fmt = _("Task %(id)s Not Found.")
 
-class ContainerCreateFailed(HyperserviceException):
+class ContainerCreateFailed(WormholeException):
     msg_fmt = _("Unable to create Container")
 
-class ContainerExists(HyperserviceException):
+class ContainerExists(WormholeException):
     code = 409
     msg_fmt = _("Unable to create Container")
 
-class ContainerStartFailed(HyperserviceException):
+class ContainerStartFailed(WormholeException):
     msg_fmt = _("Unable to start Container")
 
-class InjectFailed(HyperserviceException):
+class InjectFailed(WormholeException):
     msg_fmt = _("Inject file %(path)s failed: %(reason)s")
