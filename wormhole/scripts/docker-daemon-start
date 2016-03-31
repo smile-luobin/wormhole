@@ -42,15 +42,18 @@ mount $first_disk $DOCKER_DIR 2>&1 | grep 'you must specify the filesystem type'
   mount $first_disk $DOCKER_DIR
 }
 
+insecure_registry_opt=$(awk '/^ *registry_url *=/{url="--insecure-registry="$3} { a+=/^ *insecure_registry *= [Tt]rue *(#|$)/} END{ if (a) print url}' /etc/wormhole/wormhole.conf)
 
-awk -v d="$DOCKER_DIR" '!/^DOCKER_OPTS/;END{print "DOCKER_OPTS=\"--debug --graph="d"\""}' /etc/default/docker > /tmp/.$$ && mv /tmp/.$$ /etc/default/docker || rm /tmp/.$$
+docker_opts="DOCKER_OPTS=\"--debug --graph=$DOCKER_DIR $insecure_registry_opt \""
 
-mount | grep "$DOCKER_DIR" && {
+awk -v d="$docker_opts" '!/^DOCKER_OPTS/;END{print d}' /etc/default/docker > /tmp/.$$ && mv /tmp/.$$ /etc/default/docker || rm /tmp/.$$
+
+mount | grep -w "$DOCKER_DIR" && {
 
   echo start docker
   service docker restart && {
     echo docker restart on $DOCKER_DIR successfully
-    ! docker images | grep $IMAGE_NAME  && docker load --input $IMAGE_FILE && docker images | grep $IMAGE_NAME && {
+    ! docker images $IMAGE_NMAE| grep $IMAGE_NAME  && docker load --input $IMAGE_FILE && docker images | grep $IMAGE_NAME && {
       echo docker import image $IMAGE_NAME from $IMAGE_FILE successfully
     }
   }

@@ -95,7 +95,6 @@ class ContainerController(wsgi.Application):
         if self._container is None:
             containers = self.docker.containers(all=True)
             if not containers:
-                LOG.error("No containers exists!")
                 raise exception.ContainerNotFound()
             if len(containers) > 1:
                 LOG.warn("Have multiple(%d) containers: %s !", len(containers), containers)
@@ -170,7 +169,13 @@ class ContainerController(wsgi.Application):
             new_remote_name = self._available_eth_name()
             self.vif_driver.attach(vif, instance, container_id, new_remote_name)
 
-    def create(self, request, image_name, root_volume_id=None, network_info={}, block_device_info={}, inject_files=[], admin_password=None):
+    def _get_repository(self, image_name, tag=None):
+        url = CONF.docker.get('registry_url') + '/' + image_name
+        if tag:
+            url += ":" + tag
+        return url
+
+    def create(self, request, image_name, image_id, root_volume_id=None, network_info={}, block_device_info={}, inject_files=[], admin_password=None):
         """ create the container. """
         if root_volume_id:
             # Create VM from volume, create a symbolic link for the device.
@@ -182,7 +187,9 @@ class ContainerController(wsgi.Application):
             LOG.warn("Already a container exists")
             return None
         except exception.ContainerNotFound:
-            self.docker.create_container(image_name, network_disabled=True)
+            repository = self._get_repository(image_name, tag=image_id)
+            self.docker.pull(repository, insecure_registry=True)
+            self.docker.create_container(repository, network_disabled=True)
             if admin_password is not None:
                 self._inject_password(admin_password)
             if inject_files:
@@ -194,7 +201,7 @@ class ContainerController(wsgi.Application):
         container_id = self.container['id']
         LOG.info("start container %s network_info %s block_device_info %s", 
                      container_id, network_info, block_device_info)
-        self.docker.start(container_id, privileged=True)
+        self.docker.start(container_id, privileged=CONF.docker['privileged'])
         if network_info:
             try:
                 self.plug_vifs(network_info)
@@ -409,8 +416,12 @@ class ContainerController(wsgi.Application):
     def _remove_mapping(self, volume):
         remove_symbolic(volume)
 
-    def create_image(self, request, image_id):
+    def create_image(self, request, image_id, image_name):
         """ Create a image from the container. """
+        repository = self._get_repository(image_name, tag=image_id)
+        self.docker.commit(self.container['id'], repository=repository, 
+                tag=image_id)
+        self.docker.push(repository, tag=image_id, insecure_registry=True)
         return None
 
     def pause(self, request):

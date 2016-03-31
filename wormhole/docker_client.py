@@ -44,6 +44,13 @@ docker_opts = [
     cfg.BoolOpt('privileged',
                 default=False,
                 help='Set true can own all root privileges in a container.'),
+
+    cfg.StrOpt('registry_url',
+        default='162.3.119.15:5000',
+               help='Registry url to pull/push images.'),
+    cfg.BoolOpt('insecure_registry',
+                default=False,
+                help='Set true if need insecure registry access.'),
 ]
 
 CONF.register_opts(docker_opts, 'docker')
