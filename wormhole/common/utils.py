@@ -85,7 +85,7 @@ def execute(*cmd, **kwargs):
         # kwargs['root_helper'] = get_root_helper()
         pass
     if CONF.fake_execute:
-        LOG.debug('FAKE NET: %s', ' '.join(map(str, cmd)))
+        LOG.debug('FAKE EXECUTE: %s', ' '.join(map(str, cmd)))
         return 'fake', 0
     else:
         return processutils.execute(*cmd, **kwargs)

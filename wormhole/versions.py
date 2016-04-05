@@ -9,7 +9,7 @@ class Versions(wsgi.Application):
 
     def index(self,req):
         return {
-                  "versions": 
+                  "versions":
                       [ { "status": "CURRENT", "id": "v1.0" } ]
         }
 

@@ -10,6 +10,9 @@ from wormhole.i18n import _
 from wormhole.docker_client import DockerHTTPClient
 from wormhole.net_util import network
 
+from wormhole.tasks import addtask
+from wormhole.tasks import FAKE_SUCCESS_TASK
+
 import functools
 import uuid
 import inspect
@@ -20,12 +23,14 @@ import tempfile
 import tarfile
 import StringIO
 
+import time
+
 from oslo.config import cfg
 
 from docker import errors as dockerErrors
 
 container_opts = [
-    cfg.StrOpt('container_volume_link_dir', 
+    cfg.StrOpt('container_volume_link_dir',
         default="/home/.by-volume-id",
         help='The dir containing symbolic files named volume-id targeting device path.')
 ]
@@ -42,16 +47,6 @@ def volume_link_path(volume_id):
 def docker_root_path():
     DOCKER_LINK_NAME = "docker-data-device-link"
     return volume_link_path(DOCKER_LINK_NAME)
-
-def create_symbolic(device, volume_id):
-    if not device.startswith("/dev/"):
-        device = "/dev/" + device
-    utils.trycmd('ln', '-sf', device, volume_link_path(volume_id))
-
-def remove_symbolic(volume_id):
-    link_file = volume_link_path(volume_id)
-    if os.path.islink(link_file):
-        os.remove(link_file)
 
 class ContainerController(wsgi.Application):
 
@@ -98,7 +93,7 @@ class ContainerController(wsgi.Application):
                 raise exception.ContainerNotFound()
             if len(containers) > 1:
                 LOG.warn("Have multiple(%d) containers: %s !", len(containers), containers)
-            self._container = { "id" : containers[0]["id"], 
+            self._container = { "id" : containers[0]["id"],
                     "name" : (containers[0]["names"] or ["ubuntu-upstart"]) [0] }
         return self._container
 
@@ -169,10 +164,8 @@ class ContainerController(wsgi.Application):
             new_remote_name = self._available_eth_name()
             self.vif_driver.attach(vif, instance, container_id, new_remote_name)
 
-    def _get_repository(self, image_name, tag=None):
+    def _get_repository(self, image_name):
         url = CONF.docker.get('registry_url') + '/' + image_name
-        if tag:
-            url += ":" + tag
         return url
 
     def create(self, request, image_name, image_id, root_volume_id=None, network_info={}, block_device_info={}, inject_files=[], admin_password=None):
@@ -187,19 +180,34 @@ class ContainerController(wsgi.Application):
             LOG.warn("Already a container exists")
             return None
         except exception.ContainerNotFound:
-            repository = self._get_repository(image_name, tag=image_id)
-            self.docker.pull(repository, insecure_registry=True)
-            self.docker.create_container(repository, network_disabled=True)
-            if admin_password is not None:
-                self._inject_password(admin_password)
-            if inject_files:
-                self._inject_files(inject_files, plain=True)
-            return None
+            repository = self._get_repository(image_name)
+            local_image_name = repository + ':' + image_id
+
+            def _do_create_after_download_image():
+                self.docker.create_container(local_image_name, network_disabled=True)
+                if admin_password is not None:
+                    self._inject_password(admin_password)
+                if inject_files:
+                    self._inject_files(inject_files, plain=True)
+
+            if self.docker.images(name=local_image_name):
+                LOG.debug("Repository = %s already exists", local_image_name)
+                _do_create_after_download_image()
+                return FAKE_SUCCESS_TASK
+            else:
+                def _do_pull_image():
+                    LOG.debug("starting pull image repository=%s:%s", repository, image_id)
+                    self.docker.pull(repository, tag=image_id, insecure_registry=True)
+                    LOG.debug("done pull image repository=%s:%s", repository, image_id)
+                    _do_create_after_download_image()
+                task = addtask(_do_pull_image)
+                LOG.debug("pull image task %s", task)
+                return task
 
     def start(self, request, network_info={}, block_device_info={}):
         """ Start the container. """
         container_id = self.container['id']
-        LOG.info("start container %s network_info %s block_device_info %s", 
+        LOG.info("start container %s network_info %s block_device_info %s",
                      container_id, network_info, block_device_info)
         self.docker.start(container_id, privileged=CONF.docker['privileged'])
         if network_info:
@@ -211,7 +219,7 @@ class ContainerController(wsgi.Application):
                 LOG.debug(msg, exc_info=True)
                 raise exception.ContainerStartFailed(msg)
         if block_device_info:
-            try: 
+            try:
                 self._attach_bdm(block_device_info)
             except Exception as e:
                 pass
@@ -396,7 +404,9 @@ class ContainerController(wsgi.Application):
                 LOG.warn("can't find the device of volume %s when attaching volume", volume_id)
                 return
         else:
-            create_symbolic(device, volume_id)
+            if not device.startswith("/dev/"):
+                device = "/dev/" + device
+            utils.trycmd('ln', '-sf', device, volume_link_path(volume_id))
 
     def attach_volume(self, request, volume, device, mount_device):
         """ attach volume. """
@@ -414,15 +424,24 @@ class ContainerController(wsgi.Application):
         self._add_mapping(volume_id, "/docker", root_dev_path)
 
     def _remove_mapping(self, volume):
-        remove_symbolic(volume)
+        link_file = volume_link_path(volume_id)
+        if os.path.islink(link_file):
+            dev_path = os.path.realpath(link_file)
+            # ensure the device path is not visible in host/container
+            utils.trycmd('echo', '1', '>', "/sys/block/%s/device/delete" % dev_path.replace('/dev/',''))
+            os.remove(link_file)
 
     def create_image(self, request, image_id, image_name):
         """ Create a image from the container. """
-        repository = self._get_repository(image_name, tag=image_id)
-        self.docker.commit(self.container['id'], repository=repository, 
+        repository = self._get_repository(image_name)
+        LOG.debug("creating image from repo = %s, tag = %s", repository, image_id)
+        def _create_image_cb():
+            self.docker.commit(self.container['id'], repository=repository,
                 tag=image_id)
-        self.docker.push(repository, tag=image_id, insecure_registry=True)
-        return None
+            self.docker.push(repository, tag=image_id, insecure_registry=True)
+        task = addtask(_create_image_cb)
+        LOG.debug("created image task %s", task)
+        return task
 
     def pause(self, request):
         self.docker.pause(self.container['id'])

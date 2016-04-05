@@ -100,7 +100,7 @@ class DockerGenericVIFDriver(object):
                                           internal=True)
             undo_mgr.undo_with(
                 lambda: utils.execute('ovs-vsctl', 'del-port',
-                                       self.get_bridge_name(vif), 
+                                       self.get_bridge_name(vif),
                                        vm_port_name, run_as_root=True))
             utils.execute('ip', 'link', 'set', br_name, 'up', run_as_root=True)
 

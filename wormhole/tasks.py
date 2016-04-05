@@ -12,17 +12,23 @@ from eventlet import greenthread
 
 LOG = log.getLogger(__name__)
 
-TASK_DOING = 0
-TASK_SUCCESS = 1
-TASK_ERROR = 2
 
 class Task(object):
+    TASK_DOING = 0
+    TASK_SUCCESS = 1
+    TASK_ERROR = 2
+    FORMAT_MAP = {
+            TASK_DOING: "doing",
+            TASK_SUCCESS: "successful",
+            TASK_ERROR: "error with {}"
+    }
     def __init__(self, tid, callback, *args, **kwargs):
-        self.tid = tid
+        self.tid = str(tid)
         self.callback = callback
         self.args = args
         self.kwargs = kwargs
-        self._status = TASK_DOING
+        self._code = self.TASK_DOING
+        self._msg = ''
 
     def start(self):
 
@@ -32,16 +38,29 @@ class Task(object):
             """
             try:
                 self.callback(*self.args, **self.kwargs)
-                self._status = TASK_SUCCESS
+                self._code = self.TASK_SUCCESS
             except Exception as e:
                 LOG.exception(e)
-                self._status = TASK_ERROR
+                self._code = self.TASK_ERROR
+                self._msg = str(e.message)
 
         greenthread.spawn(_inner)
         return self
 
     def status(self):
-        return self._status
+        return { "code": self._code,
+                 "message": "Task %s is " % self.tid +
+                        self.FORMAT_MAP.get(self._code, '').format(self._msg),
+                 "task_id": self.tid
+                }
+
+    @staticmethod
+    def success_task():
+        t = Task("-1", None)
+        t._code = t.TASK_SUCCESS
+        return t.status()
+
+FAKE_SUCCESS_TASK = Task.success_task()
 
 class TaskManager(object):
     _task_mapping = {}
@@ -53,7 +72,7 @@ class TaskManager(object):
         self._task_mapping[task_id] = t
         t.start()
         self._free_id += 1
-        return task_id
+        return t.status()
 
     def query_task(self, task_id):
         task = self._task_mapping.get(task_id)
@@ -67,7 +86,7 @@ addtask = _tmanger.add_task
 
 class TaskController(wsgi.Application):
     def query(self, request, task):
-        return { "status" : _tmanger.query_task(task)}
+        return _tmanger.query_task(task)
 
 def create_router(mapper):
     controller = TaskController()

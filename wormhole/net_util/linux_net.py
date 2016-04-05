@@ -222,18 +222,18 @@ def create_evs_virtio_port(bridge, dev, iface_id, mac, instance_id,
     sc_type = None
     sf_port_id = None
     list_args = ['--', '--if-exists', 'list', 'port', dev]
-    if str(_ovs_vsctl(list_args)).find('sf_port_id') != -1:      
+    if str(_ovs_vsctl(list_args)).find('sf_port_id') != -1:
         columns_args = ['--', '--columns=other_config', 'list', 'port', dev]
-        result = str(_ovs_vsctl(columns_args)).split('(')[1].split(')')[0] 
+        result = str(_ovs_vsctl(columns_args)).split('(')[1].split(')')[0]
 
         re_sf_port_id= re.compile('.*sf_port_id="(.*?)".*', re.M | re.X)
-        match_sf_port_id = re_sf_port_id.search(result)       
-        if match_sf_port_id: 
+        match_sf_port_id = re_sf_port_id.search(result)
+        if match_sf_port_id:
             sf_port_id = match_sf_port_id.group(1)
 
         re_sc_type= re.compile('.*sc_type=(.*?),.*', re.M | re.X)
-        match_sc_type = re_sc_type.search(result)       
-        if match_sc_type: 
+        match_sc_type = re_sc_type.search(result)
+        if match_sc_type:
             sc_type = match_sc_type.group(1)
 
 
@@ -254,11 +254,11 @@ def create_evs_virtio_port(bridge, dev, iface_id, mac, instance_id,
 
     sc_interface_args = ['set', 'port', dev]
     if sf_port_id:
-        sc_interface_args.append('other_config:sf_port_id=%s' % sf_port_id)                              
+        sc_interface_args.append('other_config:sf_port_id=%s' % sf_port_id)
     if sc_type:
         sc_interface_args.append('other_config:sc_type=%s' % sc_type)
     if sf_port_id:
-        _ovs_vsctl(sc_interface_args)        
+        _ovs_vsctl(sc_interface_args)
 
 
 
@@ -267,18 +267,18 @@ def create_evs_virtio_port_bind_numa(bridge, dev, numa_id, iface_id, mac, instan
     sc_type = None
     sf_port_id = None
     list_args = ['--', '--if-exists', 'list', 'port', dev]
-    if str(_ovs_vsctl(list_args)).find('sf_port_id') != -1:      
+    if str(_ovs_vsctl(list_args)).find('sf_port_id') != -1:
         columns_args = ['--', '--columns=other_config', 'list', 'port', dev]
-        result = str(_ovs_vsctl(columns_args)).split('(')[1].split(')')[0] 
+        result = str(_ovs_vsctl(columns_args)).split('(')[1].split(')')[0]
 
         re_sf_port_id= re.compile('.*sf_port_id="(.*?)".*', re.M | re.X)
-        match_sf_port_id = re_sf_port_id.search(result)       
-        if match_sf_port_id: 
+        match_sf_port_id = re_sf_port_id.search(result)
+        if match_sf_port_id:
             sf_port_id = match_sf_port_id.group(1)
 
         re_sc_type= re.compile('.*sc_type=(.*?),.*', re.M | re.X)
-        match_sc_type = re_sc_type.search(result)       
-        if match_sc_type: 
+        match_sc_type = re_sc_type.search(result)
+        if match_sc_type:
             sc_type = match_sc_type.group(1)
 
     interface_args = ['--', '--if-exists', 'del-port', dev, '--',
@@ -300,11 +300,11 @@ def create_evs_virtio_port_bind_numa(bridge, dev, numa_id, iface_id, mac, instan
 
     sc_interface_args = ['set', 'port', dev]
     if sf_port_id:
-        sc_interface_args.append('other_config:sf_port_id=%s' % sf_port_id)                              
+        sc_interface_args.append('other_config:sf_port_id=%s' % sf_port_id)
     if sc_type:
         sc_interface_args.append('other_config:sc_type=%s' % sc_type)
     if sf_port_id:
-        _ovs_vsctl(sc_interface_args)       
+        _ovs_vsctl(sc_interface_args)
 
 
 def bridge_exists(bridge_name):

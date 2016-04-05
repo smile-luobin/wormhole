@@ -67,16 +67,17 @@ class VolumeController(wsgi.Application):
         return device
 
     def clone_volume(self, request, volume, src_vref):
-        LOG.debug("clone volume %s, src_vref %s", volume, src_vref)
+        LOG.debug("cloning volume %s, src_vref %s", volume, src_vref)
         srcstr = self._get_device(src_vref["id"])
         dststr = self._get_device(volume["id"])
         size_in_g = min(int(src_vref['size']), int(volume['size']))
 
-        clone_callback = functools.partial(utils.copy_volume, srcstr, dststr, 
+        clone_callback = functools.partial(utils.copy_volume, srcstr, dststr,
                                             size_in_g*units.Ki, CONF.volume_dd_blocksize)
-        task_id = addtask(clone_callback)
+        task = addtask(clone_callback)
+        LOG.debug("clone volume task %s", task)
 
-        return {"task_id": task_id }
+        return task
 
 
 def create_router(mapper):
