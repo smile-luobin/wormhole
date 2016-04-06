@@ -33,23 +33,12 @@ class VolumeController(wsgi.Application):
         super(VolumeController, self).__init__()
         self.volume_device_mapping = {}
 
-    def _list_host_device(self):
-        dev_out, _err = utils.trycmd('lsblk', '-dn', '-o', 'NAME,TYPE')
-        dev_list = []
-        for dev in dev_out.strip().split('\n'):
-            name, type = dev.split()
-            if type == 'disk' and not name.endswith('da'):
-                dev_list.append("/dev/" + name)
-
-        LOG.debug("scan host devices: %s", dev_list)
-        return { "devices" : dev_list }
-
     def list(self, request, scan=True):
         """ List all host devices. """
         if scan:
             LOG.debug("scaning host scsi devices")
             utils.trycmd("bash", "-c", "for f in /sys/class/scsi_host/host*/scan; do echo '- - -' > $f; done")
-        return self._list_host_device()
+        return { "devices" : [d['name'] for d in utils.list_device()] }
 
     def _get_device(self, volume_id):
         device = self.volume_device_mapping.get(volume_id)

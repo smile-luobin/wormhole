@@ -11,7 +11,7 @@ from wormhole.docker_client import DockerHTTPClient
 from wormhole.net_util import network
 
 from wormhole.tasks import addtask
-from wormhole.tasks import FAKE_SUCCESS_TASK
+from wormhole.tasks import FAKE_SUCCESS_TASK, FAKE_ERROR_TASK
 
 import functools
 import uuid
@@ -56,7 +56,27 @@ class ContainerController(wsgi.Application):
         self._ns_created = False
         vif_class = importutils.import_class(CONF.docker.vif_driver)
         self.vif_driver = vif_class()
+        self._setup_volume_mapping()
         super(ContainerController, self).__init__()
+
+    def _setup_volume_mapping(self):
+        self._volume_mapping = {}
+        self.root_dev_path = os.path.realpath(docker_root_path())
+
+        link_dir = CONF.get('container_volume_link_dir')
+
+        if not os.path.exists(link_dir):
+            os.makedirs(link_dir)
+            return
+
+        for link in os.listdir(link_dir):
+            link_path = volume_link_path(link)
+            if os.path.islink(link_path):
+                realpath = os.path.realpath(link_path)
+                if realpath.startswith("/dev/"):
+                    self._volume_mapping[link] = realpath
+                    LOG.info("found volume mapping %s ==> %s", 
+                            link, self._volume_mapping[link])
 
     def _discovery_use_eth(self):
         net_prefix = 'eth'
@@ -98,12 +118,43 @@ class ContainerController(wsgi.Application):
         return self._container
 
     def _attach_bdm(self, block_device_info):
+        """ Attach volume, setup symbolic for volume id mapping to device name.
+        """
         if block_device_info:
             for bdm in block_device_info.get('block_device_mapping', []):
                 LOG.debug("attach block device mapping %s", bdm)
                 mount_device = bdm['mount_device']
                 volume_id = bdm['connection_info']['data']['volume_id']
                 self._add_mapping(volume_id, mount_device, bdm.get('real_device', ''))
+
+    def _update_bdm(self, block_device_info):
+        """ Update mapping info. """
+        if block_device_info:
+            new_volume_mapping = {}
+            for bdm in block_device_info.get('block_device_mapping', []):
+                LOG.debug("attach block device mapping %s", bdm)
+                mount_device = bdm['mount_device']
+                size_in_g = bdm['size']
+                volume_id = bdm['connection_info']['data']['volume_id']
+                new_volume_mapping[volume_id] = {"mount_device" : mount_device, "size": str(size_in_g) + "G"}
+            to_remove_volumes = set(self._volume_mapping) - set(new_volume_mapping)
+            if to_remove_volumes:
+                LOG.info("Possible detach volume when vm is stopped")
+            for remove in to_remove_volumes:
+                self._remove_mapping(remove)
+            
+            to_add_volumes = set(new_volume_mapping) - set(self._volume_mapping)
+            if to_add_volumes:
+                LOG.info("Possible attach volume when vm is stopped")
+                new_devices = [d for d in utils.list_device() if d['name'] not in self._volume_mapping.values()]
+                ## group by size
+                for size in set([d['size'] for d in new_devices]):
+                    _devices = sorted([d['name'] for d in new_devices if d['size'] == size])
+                    _to_add_volumes = sorted([v for v in to_add_volumes if new_volume_mapping[v]['size'] == size])
+                    LOG.debug("size: %s, new_devices:%s, added_volums:%s", 
+                                size, _devices, _to_add_volumes)
+                    for add, new_device in zip(_to_add_volumes, _devices):
+                        self._add_mapping(add, new_volume_mapping[add]['mount_device'], new_device)
 
     def plug_vifs(self, network_info):
         """Plug VIFs into networks."""
@@ -168,7 +219,8 @@ class ContainerController(wsgi.Application):
         url = CONF.docker.get('registry_url') + '/' + image_name
         return url
 
-    def create(self, request, image_name, image_id, root_volume_id=None, network_info={}, block_device_info={}, inject_files=[], admin_password=None):
+    def create(self, request, image_name, image_id, root_volume_id=None, network_info={},
+                      block_device_info={}, inject_files=[], admin_password=None):
         """ create the container. """
         if root_volume_id:
             # Create VM from volume, create a symbolic link for the device.
@@ -178,7 +230,7 @@ class ContainerController(wsgi.Application):
         try:
             _ = self.container
             LOG.warn("Already a container exists")
-            return None
+            return  FAKE_SUCCESS_TASK
         except exception.ContainerNotFound:
             repository = self._get_repository(image_name)
             local_image_name = repository + ':' + image_id
@@ -189,6 +241,11 @@ class ContainerController(wsgi.Application):
                     self._inject_password(admin_password)
                 if inject_files:
                     self._inject_files(inject_files, plain=True)
+                if block_device_info:
+                    try:
+                        self._attach_bdm(block_device_info)
+                    except Exception as e:
+                        LOG.exception(e)
 
             if self.docker.images(name=local_image_name):
                 LOG.debug("Repository = %s already exists", local_image_name)
@@ -208,21 +265,22 @@ class ContainerController(wsgi.Application):
         """ Start the container. """
         container_id = self.container['id']
         LOG.info("start container %s network_info %s block_device_info %s",
-                     container_id, network_info, block_device_info)
+                   container_id, network_info, block_device_info)
         self.docker.start(container_id, privileged=CONF.docker['privileged'])
         if network_info:
             try:
                 self.plug_vifs(network_info)
                 self._attach_vifs(network_info)
             except Exception as e:
-                msg = _('Cannot setup network for container %s: %s').format(self.container['name'], e)
+                msg = _('Cannot setup network for container {}: {}').format(self.container['name'], str(e.message))
                 LOG.debug(msg, exc_info=True)
                 raise exception.ContainerStartFailed(msg)
         if block_device_info:
             try:
-                self._attach_bdm(block_device_info)
+                self._update_bdm(block_device_info)
             except Exception as e:
-                pass
+                LOG.exception(e)
+                raise
 
     def _stop(self, container_id, timeout=5):
         try:
@@ -396,6 +454,7 @@ class ContainerController(wsgi.Application):
         self._inject_password(admin_password)
 
     def _add_mapping(self, volume_id, mountpoint, device=''):
+        LOG.debug("attach volume %s : device %s, mountpoint %s", volume_id, device, mountpoint)
         if not device:
             link_file = volume_link_path(volume_id)
             if os.path.islink(link_file):
@@ -406,32 +465,34 @@ class ContainerController(wsgi.Application):
         else:
             if not device.startswith("/dev/"):
                 device = "/dev/" + device
+            self._volume_mapping[volume_id] = device
             utils.trycmd('ln', '-sf', device, volume_link_path(volume_id))
 
     def attach_volume(self, request, volume, device, mount_device):
         """ attach volume. """
-        LOG.debug("attach volume %s : device %s, mountpoint %s", volume, device, mount_device)
         self._add_mapping(volume, mount_device, device)
         return None
 
     def detach_volume(self, request, volume):
-        LOG.debug("dettach volume %s", volume)
         self._remove_mapping(volume)
         return webob.Response(status_int=200)
 
     def _add_root_mapping(self, volume_id):
-        root_dev_path = os.path.realpath(docker_root_path())
-        self._add_mapping(volume_id, "/docker", root_dev_path)
+        self._add_mapping(volume_id, "/docker", self.root_dev_path)
 
-    def _remove_mapping(self, volume):
+    def _remove_mapping(self, volume_id):
         link_file = volume_link_path(volume_id)
         if os.path.islink(link_file):
             dev_path = os.path.realpath(link_file)
-            # ensure the device path is not visible in host/container
-            utils.trycmd('echo', '1', '>', "/sys/block/%s/device/delete" % dev_path.replace('/dev/',''))
-            os.remove(link_file)
+            # ignore the docker root volume
+            if dev_path != self.root_dev_path:
+                LOG.debug("dettach volume %s", volume_id)
+                # ensure the device path is not visible in host/container
+                utils.trycmd('echo', '1', '>', "/sys/block/%s/device/delete" % dev_path.replace('/dev/',''))
+                self._volume_mapping.pop(volume_id)
+                os.remove(link_file)
 
-    def create_image(self, request, image_id, image_name):
+    def create_image(self, request, image_name, image_id):
         """ Create a image from the container. """
         repository = self._get_repository(image_name)
         LOG.debug("creating image from repo = %s, tag = %s", repository, image_id)
@@ -455,6 +516,12 @@ class ContainerController(wsgi.Application):
     def status(self, request):
         container = self.docker.containers(all=True)[0]
         return { "status": container['status'] }
+
+    def image_info(self, request):
+        image_name = request.GET.get('image_name')
+        image_id = request.GET.get('image_id')
+        re = self.docker.images(name=self._get_repository(image_name) + ':' + image_id)
+        return {"name" : image_name, "id": image_id, "size" : re[0]['size'] if re else 0}
 
 def create_router(mapper):
     controller = ContainerController()
@@ -523,4 +590,8 @@ def create_router(mapper):
     mapper.connect('/container/status',
                    controller=controller,
                    action='status',
+                   conditions=dict(method=['GET']))
+    mapper.connect('/container/image-info',
+                   controller=controller,
+                   action='image_info',
                    conditions=dict(method=['GET']))

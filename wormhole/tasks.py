@@ -60,7 +60,14 @@ class Task(object):
         t._code = t.TASK_SUCCESS
         return t.status()
 
+    @staticmethod
+    def error_task():
+        t = Task("-1", None)
+        t._code = t.TASK_ERROR
+        return t.status()
+
 FAKE_SUCCESS_TASK = Task.success_task()
+FAKE_ERROR_TASK = Task.error_task()
 
 class TaskManager(object):
     _task_mapping = {}

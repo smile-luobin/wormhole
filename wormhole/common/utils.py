@@ -241,3 +241,16 @@ def set_passwd(username, admin_passwd, passwd_data, shadow_data):
         raise exception.WormholeException(msg % username)
 
     return "\n".join(new_shadow)
+
+def list_device():
+    filter_fields = ['name', 'type', 'maj:min', 'size']
+    dev_out, _err = trycmd('lsblk', '-dn', '-o', ','.join(filter_fields))
+    dev_list = []
+    for dev in dev_out.strip().split('\n'):
+        res = dev.split()
+        name, disk_type = res[:2]
+        if disk_type == 'disk' and not name.endswith('da'):
+            res[0] = "/dev/" + name
+            dev_list.append(dict(zip(filter_fields, res)))
+    LOG.debug("scan host devices: %s", dev_list)
+    return dev_list

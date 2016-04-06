@@ -31,6 +31,7 @@ first_disk=$(readlink -f "$LINK_MAIN_FILE")
      sleep $SCANINTERVAL
   done
   lsblk
+  ln -sf $first_disk $LINK_MAIN_FILE
   echo found data disk $first_disk
 }
 
@@ -38,7 +39,6 @@ mount $first_disk $DOCKER_DIR 2>&1 | grep 'you must specify the filesystem type'
   # format the device
   echo format $first_disk mkfs.ext4 -F $first_disk
   mkfs.ext4 -F $first_disk
-  ln -sf $first_disk $LINK_MAIN_FILE
   mount $first_disk $DOCKER_DIR
 }
 
