@@ -48,6 +48,11 @@ def docker_root_path():
     DOCKER_LINK_NAME = "docker-data-device-link"
     return volume_link_path(DOCKER_LINK_NAME)
 
+def check_dev_exist(dev_path):
+    """ check /dev/sde exists by `fdisk'. Note `lsblk' can't guarentee that. """
+    disk_info, _ignore_err = utils.trycmd('fdisk', '-l', dev_path)
+    return disk_info.strip() != ''
+
 class ContainerController(wsgi.Application):
 
     def __init__(self):
@@ -137,16 +142,31 @@ class ContainerController(wsgi.Application):
                 size_in_g = bdm['size']
                 volume_id = bdm['connection_info']['data']['volume_id']
                 new_volume_mapping[volume_id] = {"mount_device" : mount_device, "size": str(size_in_g) + "G"}
+
+            all_devices = utils.list_device()
             to_remove_volumes = set(self._volume_mapping) - set(new_volume_mapping)
+
+            for comm_volume in set(self._volume_mapping).intersection(new_volume_mapping):
+                _path = self._volume_mapping[comm_volume]
+                _size = new_volume_mapping[comm_volume]['size']
+                # If the device not exist or size not match, then remove it.
+                if not check_dev_exist(_path) or \
+                        any([d['name'] == _path and d['size'] == _size for d in all_devices]):
+                    LOG.info("Volume %s doesn't match, update it.", comm_volume)
+                    to_remove_volumes.add(comm_volume)
+
             if to_remove_volumes:
                 LOG.info("Possible detach volume when vm is stopped")
-            for remove in to_remove_volumes:
-                self._remove_mapping(remove)
+
+                for remove in to_remove_volumes:
+                    self._remove_mapping(remove, ensure=False)
             
             to_add_volumes = set(new_volume_mapping) - set(self._volume_mapping)
+
             if to_add_volumes:
                 LOG.info("Possible attach volume when vm is stopped")
-                new_devices = [d for d in utils.list_device() if d['name'] not in self._volume_mapping.values()]
+                new_devices = [d for d in all_devices if d['name'] not in self._volume_mapping.values()]
+
                 ## group by size
                 for size in set([d['size'] for d in new_devices]):
                     _devices = sorted([d['name'] for d in new_devices if d['size'] == size])
@@ -391,7 +411,12 @@ class ContainerController(wsgi.Application):
                 _tar.close()
 
                 os.lseek(fd, 0, os.SEEK_SET)
-                tar_content = os.read(fd, 1<<30)
+                tar_content = ''
+                partial = True
+                while partial:
+                    partial = os.read(fd, 1<<14)
+                    if tar_content: tar_content += partial
+                    else: tar_content = partial
                 # TODO: file already exists in the container, need to backup?
                 self.docker.put_archive(container_id, dirname, tar_content)
 
@@ -403,7 +428,7 @@ class ContainerController(wsgi.Application):
             raise exception.InjectFailed(path=path, reason="dir " + dirname + " not found")
         except Exception as e:
             LOG.exception(e)
-            raise exception.InjectFailed(path='', reason=str(e.message))
+            raise exception.InjectFailed(path='', reason=repr(e) + str(e.message))
         finally:
             LOG.debug("clean temp tar name %d %s", fd, name)
             os.close(fd)
@@ -480,15 +505,18 @@ class ContainerController(wsgi.Application):
     def _add_root_mapping(self, volume_id):
         self._add_mapping(volume_id, "/docker", self.root_dev_path)
 
-    def _remove_mapping(self, volume_id):
+    def _remove_mapping(self, volume_id, ensure=True):
         link_file = volume_link_path(volume_id)
         if os.path.islink(link_file):
             dev_path = os.path.realpath(link_file)
             # ignore the docker root volume
             if dev_path != self.root_dev_path:
                 LOG.debug("dettach volume %s", volume_id)
-                # ensure the device path is not visible in host/container
-                utils.trycmd('echo', '1', '>', "/sys/block/%s/device/delete" % dev_path.replace('/dev/',''))
+                if ensure:
+                    # ensure the device path is not visible in host/container
+                    if not check_dev_exist(dev_path):
+                        utils.trycmd('echo', '1', '>', '/sys/block/%s/device/delete' % dev_path.replace('/dev/',''))
+                    else: LOG.warn("try to delete device %s, but it seems exist.", dev_path)
                 self._volume_mapping.pop(volume_id)
                 os.remove(link_file)
 

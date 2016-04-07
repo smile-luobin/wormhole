@@ -243,6 +243,13 @@ def set_passwd(username, admin_passwd, passwd_data, shadow_data):
     return "\n".join(new_shadow)
 
 def list_device():
+    """
+    Example returns:
+      [
+        { "name": "/dev/sde", "type": "disk", "size": "3G", "maj:min": "8:16" },
+        { "name": "/dev/sdh", "type": "disk", "size": "4G", "maj:min": "8:48" }
+      ]
+    """
     filter_fields = ['name', 'type', 'maj:min', 'size']
     dev_out, _err = trycmd('lsblk', '-dn', '-o', ','.join(filter_fields))
     dev_list = []
