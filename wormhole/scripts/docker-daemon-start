@@ -4,6 +4,8 @@ DOCKER_DIR=/docker
 LINK_DIR=/home/.by-volume-id
 LINK_MAIN_DEVICE_NAME=docker-data-device-link
 LINK_MAIN_FILE="$LINK_DIR/$LINK_MAIN_DEVICE_NAME"
+REGISTRY_CONFIG_FILE=/home/docker-registry-config
+PROJECT_CONFIG_FILE=/etc/wormhole/wormhole.conf
 
 IMAGE_FILE=/home/ubuntu-upstart.tar
 IMAGE_NAME=ubuntu-upstart
@@ -35,6 +37,7 @@ first_disk=$(readlink -f "$LINK_MAIN_FILE")
   echo found data disk $first_disk
 }
 
+
 mount $first_disk $DOCKER_DIR 2>&1 | grep 'you must specify the filesystem type' && {
   # format the device
   echo format $first_disk mkfs.ext4 -F $first_disk
@@ -42,7 +45,13 @@ mount $first_disk $DOCKER_DIR 2>&1 | grep 'you must specify the filesystem type'
   mount $first_disk $DOCKER_DIR
 }
 
-insecure_registry_opt=$(awk '/^ *registry_url *=/{url="--insecure-registry="$3} { a+=/^ *insecure_registry *= [Tt]rue *(#|$)/} END{ if (a) print url}' /etc/wormhole/wormhole.conf)
+[ -f "$REGISTRY_CONFIG_FILE" ] && {
+    registry_conf="$REGISTRY_CONFIG_FILE"
+} || registry_conf="$PROJECT_CONFIG_FILE"
+
+#insecure_registry_opt=$(awk '/^ *registry_url *=/{url="--insecure-registry="$3} { a+=/^ *insecure_registry *= [Tt]rue *(#|$)/} END{ if (a) print url}' "$registry_conf")
+
+insecure_registry_opt=$(awk 'sub(/^ *registry_url *= */,e){url="--insecure-registry="$1} END{print url}' "$registry_conf")
 
 docker_opts="DOCKER_OPTS=\"--debug --graph=$DOCKER_DIR $insecure_registry_opt \""
 

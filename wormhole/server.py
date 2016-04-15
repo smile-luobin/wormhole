@@ -4,9 +4,9 @@ from wormhole import config
 from wormhole.common import log as logging
 from wormhole import service
 
-def main(servername):
+def main(servername="wormhole"):
     config.parse_args(sys.argv)
-    logging.setup("wormhole")
+    logging.setup(servername)
 
 
     launcher = service.process_launcher()

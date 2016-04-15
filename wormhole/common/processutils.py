@@ -32,9 +32,7 @@ import six
 from gettextutils import _
 from . import strutils
 
-
 LOG = logging.getLogger(__name__)
-
 
 class InvalidArgumentError(Exception):
     def __init__(self, message=None):

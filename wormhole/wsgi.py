@@ -27,6 +27,7 @@ import sys
 import eventlet
 import eventlet.wsgi
 import greenlet
+import six
 
 from oslo import i18n
 from oslo.config import cfg
@@ -1124,7 +1125,6 @@ class ResponseObject(object):
 
         return self._headers.copy()
 
-import six
 # Environment variable used to pass the request params
 PARAMS_ENV = 'wormhole.params'
 
