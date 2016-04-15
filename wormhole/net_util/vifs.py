@@ -31,7 +31,7 @@ import random
 
 network_opts = [
     cfg.IntOpt('network_device_mtu',
-               default = 9000,
+               default=1300,
                help='DEPRECATED: THIS VALUE SHOULD BE SET WHEN CREATING THE '
                     'NETWORK. MTU setting for network interface.'),
 ]
