@@ -31,7 +31,7 @@ import random
 
 network_opts = [
     cfg.IntOpt('network_device_mtu',
-               default=1300,
+               default=9000,
                help='DEPRECATED: THIS VALUE SHOULD BE SET WHEN CREATING THE '
                     'NETWORK. MTU setting for network interface.'),
 ]
@@ -200,7 +200,8 @@ class DockerGenericVIFDriver(object):
 
             # Setup MTU on new_remote_name is required if it is a non
             # default value
-            mtu = CONF.network_device_mtu
+            #mtu = CONF.network_device_mtu
+            mtu = 1300
             if vif.get('mtu') is not None:
                 mtu = vif.get('mtu')
 
