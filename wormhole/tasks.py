@@ -37,8 +37,10 @@ class Task(object):
             until the transfer completes.
             """
             try:
+                LOG.debug("starting doing task")
                 self.callback(*self.args, **self.kwargs)
                 self._code = self.TASK_SUCCESS
+                LOG.debug("ending doing task")
             except Exception as e:
                 LOG.exception(e)
                 self._code = self.TASK_ERROR

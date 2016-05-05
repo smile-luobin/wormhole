@@ -22,8 +22,10 @@ import base64
 import tempfile
 import tarfile
 import StringIO
+import eventlet
 
 import time
+import sys, traceback
 
 from oslo.config import cfg
 
@@ -107,6 +109,8 @@ class ContainerController(wsgi.Application):
     @property
     def docker(self):
         if self._docker is None:
+            # patch socket so that requests to registry is green.
+            eventlet.monkey_patch(socket=True)
             self._docker = DockerHTTPClient(CONF.docker.host_url)
         return self._docker
 
@@ -254,9 +258,11 @@ class ContainerController(wsgi.Application):
         except exception.ContainerNotFound:
             repository = self._get_repository(image_name)
             local_image_name = repository + ':' + image_id
+            #local_image_name = image_name
 
-            def _do_create_after_download_image():
-                self.docker.create_container(local_image_name, network_disabled=True)
+            def _do_create_after_download_image(name):
+                LOG.debug("create container from image %s", name)
+                self.docker.create_container(name, network_disabled=True)
                 if admin_password is not None:
                     self._inject_password(admin_password)
                 if inject_files:
@@ -269,14 +275,22 @@ class ContainerController(wsgi.Application):
 
             if self.docker.images(name=local_image_name):
                 LOG.debug("Repository = %s already exists", local_image_name)
-                _do_create_after_download_image()
+                _do_create_after_download_image(local_image_name)
                 return FAKE_SUCCESS_TASK
             else:
                 def _do_pull_image():
-                    LOG.debug("starting pull image repository=%s:%s", repository, image_id)
-                    self.docker.pull(repository, tag=image_id, insecure_registry=True)
-                    LOG.debug("done pull image repository=%s:%s", repository, image_id)
-                    _do_create_after_download_image()
+                    name = local_image_name
+                    try:
+                        LOG.debug("starting pull image repository=%s:%s", repository, image_id)
+                        resp = self.docker.pull(repository, tag=image_id, insecure_registry=True)
+                        LOG.debug("done pull image repository=%s:%s, resp", repository, image_id, resp)
+                        if resp.find(image_name + " not found") != -1:
+                            LOG.warn("can't pull image, use the local image with name=%s", image_name)
+                            name = image_name
+                    except Exception as e:
+                        name = image_name
+                        LOG.exception(e)
+                    _do_create_after_download_image(name)
                 task = addtask(_do_pull_image)
                 LOG.debug("pull image task %s", task)
                 return task
@@ -286,13 +300,13 @@ class ContainerController(wsgi.Application):
         container_id = self.container['id']
         LOG.info("start container %s network_info %s block_device_info %s",
                    container_id, network_info, block_device_info)
-        self.docker.start(container_id, privileged=CONF.docker['privileged'])
+        self.docker.start(container_id, privileged=CONF.docker['privileged'], binds=["/dev:/dev"])
         if network_info:
             try:
                 self.plug_vifs(network_info)
                 self._attach_vifs(network_info)
             except Exception as e:
-                msg = _('Cannot setup network for container {}: {}').format(self.container['name'], str(e.message))
+                msg = _('Cannot setup network for container {}: {}').format(self.container['name'], repr(traceback.format_exception(*sys.exc_info())))
                 LOG.debug(msg, exc_info=True)
                 raise exception.ContainerStartFailed(msg)
         if block_device_info:
@@ -525,9 +539,11 @@ class ContainerController(wsgi.Application):
         repository = self._get_repository(image_name)
         LOG.debug("creating image from repo = %s, tag = %s", repository, image_id)
         def _create_image_cb():
+            LOG.debug("pushing image %s", repository)
             self.docker.commit(self.container['id'], repository=repository,
                 tag=image_id)
             self.docker.push(repository, tag=image_id, insecure_registry=True)
+            LOG.debug("doing image %s", repository)
         task = addtask(_create_image_cb)
         LOG.debug("created image task %s", task)
         return task

@@ -222,8 +222,8 @@ class DockerGenericVIFDriver(object):
                           '--offload', new_remote_name, 'tso', 'off',
                           run_as_root=True)
 
-        except Exception:
-            LOG.exception("Failed to attach vif")
+        except Exception as e:
+            LOG.exception("Failed to attach vif: %s", str(e.message))
 
     def get_bridge_name(self, vif):
         return vif['network']['bridge']

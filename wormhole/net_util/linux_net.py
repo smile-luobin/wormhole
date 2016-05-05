@@ -147,7 +147,7 @@ def _ovs_vsctl(args):
     except Exception as e:
         LOG.error(_("Unable to execute %(cmd)s. Exception: %(exception)s"),
                   {'cmd': full_args, 'exception': e})
-        raise exception.AgentError(method=full_args)
+        raise e
 
 def _ovs_ofctl(args):
     full_args = ['ovs-ofctl', '--timeout=%s' % CONF.ovs_vsctl_timeout] + args
@@ -156,7 +156,7 @@ def _ovs_ofctl(args):
     except Exception as e:
         LOG.error(_("Unable to execute %(cmd)s. Exception: %(exception)s"),
                   {'cmd': full_args, 'exception': e})
-        raise exception.AgentError(method=full_args)
+        raise e
 
 
 def create_ovs_bridge(bridge_name):
