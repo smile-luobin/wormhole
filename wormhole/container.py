@@ -319,7 +319,7 @@ class ContainerController(wsgi.Application):
     def _stop(self, container_id, timeout=5):
         try:
             self.docker.stop(container_id, max(timeout, 5))
-        except errors.APIError as e:
+        except dockerErrors.APIError as e:
             if 'Unpause the container before stopping' not in e.explanation:
                 LOG.warning(_('Cannot stop container: %s'),
                             e, instance=container_id, exc_info=True)
