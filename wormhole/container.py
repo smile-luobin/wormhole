@@ -250,28 +250,31 @@ class ContainerController(wsgi.Application):
             # Create VM from volume, create a symbolic link for the device.
             LOG.info("create new container from volume %s", root_volume_id)
             self._add_root_mapping(root_volume_id)
-            pass
+
+        def _do_start():
+            if admin_password is not None:
+                self._inject_password(admin_password)
+            if inject_files:
+                self._inject_files(inject_files, plain=True)
+            if block_device_info:
+                try:
+                    self._attach_bdm(block_device_info)
+                except Exception as e:
+                    LOG.exception(e)
         try:
             _ = self.container
             LOG.warn("Already a container exists")
+            # Do the work anyway
+            _do_start()
             return  FAKE_SUCCESS_TASK
         except exception.ContainerNotFound:
             repository = self._get_repository(image_name)
             local_image_name = repository + ':' + image_id
-            #local_image_name = image_name
 
             def _do_create_after_download_image(name):
                 LOG.debug("create container from image %s", name)
                 self.docker.create_container(name, network_disabled=True)
-                if admin_password is not None:
-                    self._inject_password(admin_password)
-                if inject_files:
-                    self._inject_files(inject_files, plain=True)
-                if block_device_info:
-                    try:
-                        self._attach_bdm(block_device_info)
-                    except Exception as e:
-                        LOG.exception(e)
+                _do_start()
 
             if self.docker.images(name=local_image_name):
                 LOG.debug("Repository = %s already exists", local_image_name)
