@@ -1,5 +1,6 @@
 from docker import client
 from docker import tls
+from docker import errors as dockerErrors
 
 import inspect
 import six
@@ -62,7 +63,17 @@ def filter_data(f):
     """
     @functools.wraps(f, assigned=[])
     def wrapper(*args, **kwds):
-        out = f(*args, **kwds)
+        attempts = kwds.pop('attempts', 5)
+        while 1:
+            try:
+                out = f(*args, **kwds)
+                break
+            except dockerErrors.NotFound as e:
+                attempts -= 1
+                # bug '404 Client Error: Not Found for url: http+docker://localunixsocket/v1.21/'
+                if attempts > 0 and 'Not Found for url:' in str(e):
+                    pass
+                else: raise
 
         def _filter(obj):
             if isinstance(obj, list):
