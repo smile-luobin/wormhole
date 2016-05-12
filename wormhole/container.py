@@ -283,7 +283,12 @@ class ContainerController(wsgi.Application):
             else:
                 def _do_pull_image():
                     name = local_image_name
+
                     try:
+                        import re
+                        m = re.search(r'\d+\.\d+\.\d+\.\d+', repository)
+                        if m:
+                            utils.execute('ping', '-W', '3', '-c', '1', m.group())
                         LOG.debug("starting pull image repository=%s:%s", repository, image_id)
                         resp = self.docker.pull(repository, tag=image_id, insecure_registry=True)
                         LOG.debug("done pull image repository=%s:%s, resp %s", repository, image_id, resp)

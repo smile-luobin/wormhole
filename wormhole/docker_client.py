@@ -70,9 +70,9 @@ def filter_data(f):
                 break
             except dockerErrors.NotFound as e:
                 attempts -= 1
-                # bug '404 Client Error: Not Found for url: http+docker://localunixsocket/v1.21/'
+                # bug '404 Client Error: Not Found for url: http+docker://localunixsocket/v1.21/containers/create '
                 if attempts > 0 and 'Not Found for url:' in str(e):
-                    pass
+                    sleep(1)
                 else: raise
 
         def _filter(obj):

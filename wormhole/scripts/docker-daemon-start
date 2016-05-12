@@ -14,7 +14,7 @@ IMAGE_NAME=ubuntu-upstart
 LOG_FILE=/var/log/docker_start.log
 
 exec >> $LOG_FILE 2>&1
-echo "start docker $(date)"
+echo "start docker-daemon-start $(date)"
 gateway=$(ifconfig eth0 | awk  'sub(/.*inet addr:/,e){gsub(/Bcast:|Mask:|[.]/,FS);for(;q++<4;r=r (ee=r?".":e) rr)for(rr=q==4;+ee<8;ee++)rr+=(int($(8+q)/2^ee%2)&&int($q/2^ee%2))*2^ee;print r}')
 ip route replace default via $gateway
 
@@ -40,13 +40,14 @@ first_disk=$(readlink -f "$LINK_MAIN_FILE")
   echo found data disk $first_disk
 }
 
-
+echo "start format disk $(date)"
 mount $first_disk $DOCKER_DIR 2>&1 | grep 'you must specify the filesystem type' && {
   # format the device
   echo format $first_disk mkfs.ext4 -F $first_disk
   mkfs.ext4 -F $first_disk
   mount $first_disk $DOCKER_DIR
 }
+echo "end format disk $(date)"
 
 [ -f "$REGISTRY_CONFIG_FILE" ] && {
     registry_conf="$REGISTRY_CONFIG_FILE"
@@ -64,7 +65,7 @@ awk -v d="$docker_opts" '!/^DOCKER_OPTS/;END{print d}' /etc/default/docker > /tm
 
 mount | grep -w "$DOCKER_DIR" && {
 
-  echo start docker
+  echo "start docker $(date)"
   service docker restart && {
     echo docker restart on $DOCKER_DIR successfully
     ! docker images $IMAGE_NMAE| grep $IMAGE_NAME  && docker load --input $IMAGE_FILE && docker images | grep $IMAGE_NAME && {
@@ -72,5 +73,7 @@ mount | grep -w "$DOCKER_DIR" && {
     }
   }
   service docker status | grep start  && ( wormhole-api >/dev/null 2>&1 &)
+  echo "end docker $(date)"
 }
 true
+echo "end docker-daemon-start $(date)"

@@ -83,7 +83,8 @@ class DockerGenericVIFDriver(object):
         try:
             if not linux_net.device_exists(br_name):
                 # Sometimes brctl add failed with unknown reason
-                utils.execute('brctl', 'addbr', br_name, run_as_root=True, attempts=5)
+                utils.execute('ls', run_as_root=True, attempts=5)
+                utils.execute('brctl', 'addbr', br_name, run_as_root=True)
                 undo_mgr.undo_with(lambda: utils.execute('brctl', 'delbr', br_name, run_as_root=True))
                 utils.execute('brctl', 'setfd', br_name, 0, run_as_root=True)
                 utils.execute('brctl', 'stp', br_name, 'off', run_as_root=True)
