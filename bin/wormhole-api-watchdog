@@ -6,6 +6,6 @@ IMAGE_NAME=ubuntu-upstart
 export PATH="$PATH:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
 for((i=0;i<60;i+=sleeptime)) ; do
-  ! pgrep -fl 'python .*/wormhole-api$' && service docker status | grep start && mount |grep /docker &&  docker images |grep -w $IMAGE_NAME && (  echo starting wormhole-api $(date) >> /var/log/wormhole_dog.log; wormhole-api >/dev/null 2>&1 &) && sleeptime=5;
+  pgrep -fl 'python .*/wormhole-api$' && sleeptime=5 || { service docker status | grep start && mount |grep /docker &&  docker images |grep -w $IMAGE_NAME && (  echo starting wormhole-api $(date) >> /var/log/wormhole_dog.log; wormhole-api >/dev/null 2>&1 &) ; }
   sleep $sleeptime
 done
