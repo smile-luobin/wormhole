@@ -536,9 +536,9 @@ class ContainerController(wsgi.Application):
                 LOG.debug("dettach volume %s", volume_id)
                 if ensure:
                     # ensure the device path is not visible in host/container
-                    if not check_dev_exist(dev_path):
-                        utils.trycmd('echo', '1', '>', '/sys/block/%s/device/delete' % dev_path.replace('/dev/',''))
-                    else: LOG.warn("try to delete device %s, but it seems exist.", dev_path)
+                    if check_dev_exist(dev_path):
+                        LOG.warn("try to delete device %s, but it seems exist.", dev_path)
+                    utils.trycmd('bash', '-c', 'echo 1 > /sys/block/%s/device/delete' % dev_path.replace('/dev/',''))
                 self._volume_mapping.pop(volume_id)
                 os.remove(link_file)
 
