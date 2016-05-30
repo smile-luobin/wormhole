@@ -57,11 +57,8 @@ class DockerGenericVIFDriver(object):
                 _("vif_type parameter must be present "
                   "for this vif_driver implementation"))
 
-        if vif_type == network_model.VIF_TYPE_OVS:
-            self.plug_ovs_hybrid(instance, vif)
-        else:
-            raise exception.WormholeException(
-                _("Unexpected vif_type=%s") % vif_type)
+        # bypass vif check
+        self.plug_ovs_hybrid(instance, vif)
 
     def plug_ovs_hybrid(self, instance, vif):
         """Plug using hybrid strategy
