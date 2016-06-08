@@ -31,7 +31,7 @@ first_disk=$(readlink -f "$LINK_MAIN_FILE")
      for s in /sys/class/scsi_host/host*/scan; do 
          echo "- - -" > "$s"
      done
-     first_disk=/dev/$(lsblk -d -o 'NAME,TYPE' | awk 'NR>1&&$NF=="disk"&&$1!~"xvda$|sda$"&&NF=1{print;exit }')
+     first_disk=/dev/$(lsblk -d -o 'NAME,TYPE' | awk 'NR>1&&$NF=="disk"&&$1!~"^x?[a-z]?d?a$"&&NF=1{print;exit }')
      [ -b "$first_disk" ] && ! mount | grep "$first_disk" && break
      sleep $SCANINTERVAL
   done

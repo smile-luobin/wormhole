@@ -6,6 +6,7 @@ from wormhole import service
 
 def main(servername="wormhole"):
     config.parse_args(sys.argv)
+    eventlet.monkey_patch(os=False)
     logging.setup(servername)
 
 

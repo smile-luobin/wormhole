@@ -373,7 +373,7 @@ def delete_net_dev(dev):
         try:
             utils.execute('ip', 'link', 'delete', dev, run_as_root=True,
                           check_exit_code=[0, 2, 254])
-            LOG.debug("Net device removed: '%s'", dev)
+            LOG.debug(_("Net device removed: '%s'"), dev)
         except processutils.ProcessExecutionError:
             with excutils.save_and_reraise_exception():
                 LOG.error(_("Failed removing net device: '%s'"), dev)

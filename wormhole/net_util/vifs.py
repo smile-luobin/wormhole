@@ -54,7 +54,7 @@ class DockerGenericVIFDriver(object):
 
         if vif_type is None:
             raise exception.WormholeException(
-                _("vif_type parameter must be present "
+                _("Vif_type parameter must be present "
                   "for this vif_driver implementation"))
 
         # bypass vif check
@@ -136,7 +136,7 @@ class DockerGenericVIFDriver(object):
 
         if vif_type is None:
             raise exception.WormholeException(
-                _("vif_type parameter must be present "
+                _("Vif_type parameter must be present "
                   "for this vif_driver implementation"))
 
         if vif_type == network_model.VIF_TYPE_OVS:
@@ -223,7 +223,7 @@ class DockerGenericVIFDriver(object):
                           run_as_root=True)
 
         except Exception as e:
-            LOG.exception("Failed to attach vif: %s", str(e.message))
+            LOG.exception(_("Failed to attach vif: %s"), str(e.message))
 
     def get_bridge_name(self, vif):
         return vif['network']['bridge']

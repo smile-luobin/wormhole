@@ -36,14 +36,14 @@ class VolumeController(wsgi.Application):
     def list(self, request, scan=True):
         """ List all host devices. """
         if scan:
-            LOG.debug("scaning host scsi devices")
+            LOG.debug(_("Scaning host scsi devices"))
             utils.trycmd("bash", "-c", "for f in /sys/class/scsi_host/host*/scan; do echo '- - -' > $f; done")
         return { "devices" : [d['name'] for d in utils.list_device()] }
 
     def _get_device(self, volume_id):
         device = self.volume_device_mapping.get(volume_id)
         if not device:
-            LOG.warn("can't found mapping for volume %s", volume_id)
+            LOG.warn(_("Can't found mapping for volume %s"), volume_id)
             link_path = volume_link_path(volume_id)
             if os.path.islink(link_path):
                 realpath = os.path.realpath(link_path)
@@ -52,11 +52,11 @@ class VolumeController(wsgi.Application):
                     device = realpath
         if not device:
             raise exception.VolumeNotFound(id=volume_id)
-        LOG.debug("found volume mapping: %s ==> %s", volume_id, device)
+        LOG.debug(_("Found volume mapping: %s ==> %s"), volume_id, device)
         return device
 
     def clone_volume(self, request, volume, src_vref):
-        LOG.debug("cloning volume %s, src_vref %s", volume, src_vref)
+        LOG.debug(_("Cloning volume %s, src_vref %s"), volume, src_vref)
         srcstr = self._get_device(src_vref["id"])
         dststr = self._get_device(volume["id"])
         size_in_g = min(int(src_vref['size']), int(volume['size']))
@@ -64,7 +64,7 @@ class VolumeController(wsgi.Application):
         clone_callback = functools.partial(utils.copy_volume, srcstr, dststr,
                                             size_in_g*units.Ki, CONF.volume_dd_blocksize)
         task = addtask(clone_callback)
-        LOG.debug("clone volume task %s", task)
+        LOG.debug(_("Clone volume task %s"), task)
 
         return task
 

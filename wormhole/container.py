@@ -82,7 +82,7 @@ class ContainerController(wsgi.Application):
                 realpath = os.path.realpath(link_path)
                 if realpath.startswith("/dev/"):
                     self._volume_mapping[link] = realpath
-                    LOG.info("found volume mapping %s ==> %s", 
+                    LOG.info(_("Found volume mapping %s ==> %s"),
                             link, self._volume_mapping[link])
 
     def _discovery_use_eth(self):
@@ -102,15 +102,13 @@ class ContainerController(wsgi.Application):
         while 1:
             name = net_prefix + str(i)
             if name not in used_eths:
-                LOG.debug("available net name ==> %s", name)
+                LOG.debug(_("Available net name ==> %s"), name)
                 return name
             i += 1
 
     @property
     def docker(self):
         if self._docker is None:
-            # patch socket so that requests to registry is green.
-            eventlet.monkey_patch(socket=True)
             self._docker = DockerHTTPClient(CONF.docker.host_url)
         return self._docker
 
@@ -121,7 +119,7 @@ class ContainerController(wsgi.Application):
             if not containers:
                 raise exception.ContainerNotFound()
             if len(containers) > 1:
-                LOG.warn("Have multiple(%d) containers: %s !", len(containers), containers)
+                LOG.warn(_("Have multiple(%d) containers: %s !"), len(containers), containers)
             self._container = { "id" : containers[0]["id"],
                     "name" : (containers[0]["names"] or ["ubuntu-upstart"]) [0] }
         return self._container
@@ -131,7 +129,7 @@ class ContainerController(wsgi.Application):
         """
         if block_device_info:
             for bdm in block_device_info.get('block_device_mapping', []):
-                LOG.debug("attach block device mapping %s", bdm)
+                LOG.debug(_("Attach block device mapping %s"), bdm)
                 mount_device = bdm['mount_device']
                 volume_id = bdm['connection_info']['data']['volume_id']
                 self._add_mapping(volume_id, mount_device, bdm.get('real_device', ''))
@@ -141,7 +139,7 @@ class ContainerController(wsgi.Application):
         if block_device_info:
             new_volume_mapping = {}
             for bdm in block_device_info.get('block_device_mapping', []):
-                LOG.debug("attach block device mapping %s", bdm)
+                LOG.debug(_("Attach block device mapping %s"), bdm)
                 mount_device = bdm['mount_device']
                 size_in_g = bdm['size']
                 volume_id = bdm['connection_info']['data']['volume_id']
@@ -156,26 +154,26 @@ class ContainerController(wsgi.Application):
                 # If the device not exist or size not match, then remove it.
                 if not check_dev_exist(_path) or \
                         any([d['name'] == _path and d['size'] == _size for d in all_devices]):
-                    LOG.info("Volume %s doesn't match, update it.", comm_volume)
+                    LOG.info(_("Volume %s doesn't match, update it."), comm_volume)
                     to_remove_volumes.add(comm_volume)
 
             if to_remove_volumes:
-                LOG.info("Possible detach volume when vm is stopped")
+                LOG.info(_("Possible detach volume when vm is stopped"))
 
                 for remove in to_remove_volumes:
                     self._remove_mapping(remove, ensure=False)
-            
+
             to_add_volumes = set(new_volume_mapping) - set(self._volume_mapping)
 
             if to_add_volumes:
-                LOG.info("Possible attach volume when vm is stopped")
+                LOG.info(_("Possible attach volume when vm is stopped"))
                 new_devices = [d for d in all_devices if d['name'] not in self._volume_mapping.values()]
 
                 ## group by size
                 for size in set([d['size'] for d in new_devices]):
                     _devices = sorted([d['name'] for d in new_devices if d['size'] == size])
                     _to_add_volumes = sorted([v for v in to_add_volumes if new_volume_mapping[v]['size'] == size])
-                    LOG.debug("size: %s, new_devices:%s, added_volums:%s", 
+                    LOG.debug(_("Size: %s, new_devices:%s, added_volums:%s"),
                                 size, _devices, _to_add_volumes)
                     for add, new_device in zip(_to_add_volumes, _devices):
                         self._add_mapping(add, new_volume_mapping[add]['mount_device'], new_device)
@@ -184,7 +182,7 @@ class ContainerController(wsgi.Application):
         """Plug VIFs into networks."""
         instance = self.container['id']
         for vif in network_info:
-            LOG.debug("plug vif %s", vif)
+            LOG.debug(_("Plug vif %s"), vif)
             self.vif_driver.plug(vif, instance)
 
     def _find_container_pid(self, container_id):
@@ -248,7 +246,7 @@ class ContainerController(wsgi.Application):
         """ create the container. """
         if root_volume_id:
             # Create VM from volume, create a symbolic link for the device.
-            LOG.info("create new container from volume %s", root_volume_id)
+            LOG.info(_("Create new container from volume %s"), root_volume_id)
             self._add_root_mapping(root_volume_id)
 
         def _do_create():
@@ -263,7 +261,7 @@ class ContainerController(wsgi.Application):
                     LOG.exception(e)
         try:
             _ = self.container
-            LOG.warn("Already a container exists")
+            LOG.warn(_("Already a container exists"))
             # Do the work anyway
             _do_create()
             return  FAKE_SUCCESS_TASK
@@ -272,12 +270,12 @@ class ContainerController(wsgi.Application):
             local_image_name = repository + ':' + image_id
 
             def _do_create_after_download_image(name):
-                LOG.debug("create container from image %s", name)
+                LOG.debug(_("Create container from image %s"), name)
                 self.docker.create_container(name, network_disabled=True)
                 _do_create()
 
             if self.docker.images(name=local_image_name):
-                LOG.debug("Repository = %s already exists", local_image_name)
+                LOG.debug(_("Repository = %s already exists"), local_image_name)
                 _do_create_after_download_image(local_image_name)
                 return FAKE_SUCCESS_TASK
             else:
@@ -289,24 +287,24 @@ class ContainerController(wsgi.Application):
                         m = re.search(r'\d+\.\d+\.\d+\.\d+', repository)
                         if m:
                             utils.execute('ping', '-W', '3', '-c', '1', m.group())
-                        LOG.debug("starting pull image repository=%s:%s", repository, image_id)
+                        LOG.debug(_("Starting pull image repository=%s:%s"), repository, image_id)
                         resp = self.docker.pull(repository, tag=image_id, insecure_registry=True)
-                        LOG.debug("done pull image repository=%s:%s, resp %s", repository, image_id, resp)
+                        LOG.debug(_("Done pull image repository=%s:%s, resp %s"), repository, image_id, resp)
                         if any(resp.find(s)!=-1 for s in ['"error":', image_name + " not found"]):
-                            LOG.warn("can't pull image, use the local image with name=%s", image_name)
+                            LOG.warn(_("Can't pull image, use the local image with name=%s"), image_name)
                             name = image_name
                     except Exception as e:
                         name = image_name
                         LOG.exception(e)
                     _do_create_after_download_image(name)
                 task = addtask(_do_pull_image)
-                LOG.debug("pull image task %s", task)
+                LOG.debug(_("Pull image task %s"), task)
                 return task
 
     def start(self, request, network_info={}, block_device_info={}):
         """ Start the container. """
         container_id = self.container['id']
-        LOG.info("start container %s network_info %s block_device_info %s",
+        LOG.info(_("Start container %s network_info %s block_device_info %s"),
                    container_id, network_info, block_device_info)
         self.docker.start(container_id, privileged=CONF.docker['privileged'], binds=["/dev:/dev"])
         if network_info:
@@ -335,11 +333,21 @@ class ContainerController(wsgi.Application):
             self.docker.unpause(container_id)
             self.docker.stop(container_id, timeout)
 
+    def _sync(self):
+        LOG.debug(_("Flush file system buffers"))
+        if hasattr(os, 'sync'):
+            os.sync()
+        else:
+            import ctypes
+            libc = ctype.CDLL("libc.so.6")
+            libc.sync()
     def stop(self, request):
         """ Stop the container. """
         container_id = self.container['id']
-        LOG.info("stop container %s", container_id)
-        return self._stop(container_id)
+        LOG.info(_("Stop container %s"), container_id)
+        self._stop(container_id)
+        # No sync by now
+        # self._sync()
 
     def _extract_dns_entries(self, network_info):
         dns = []
@@ -363,7 +371,7 @@ class ContainerController(wsgi.Application):
         """ Restart the container. """
         # return webob.Response(status_int=204)
         container_id = self.container['id']
-        LOG.info("restart container %s", container_id)
+        LOG.info(_("Restart container %s"), container_id)
         self._stop(container_id)
         try:
             network.teardown_network(container_id)
@@ -392,14 +400,14 @@ class ContainerController(wsgi.Application):
 
     def detach_interface(self, request, vif):
         if vif:
-            LOG.debug("detach network info %s", vif)
+            LOG.debug(_("Detach network info %s"), vif)
             instance = self.container['id']
             self.vif_driver.unplug(instance, vif)
         return webob.Response(status_int=200)
 
     def attach_interface(self, request, vif):
         if vif:
-            LOG.debug("attach network info %s", vif)
+            LOG.debug(_("Attach network info %s"), vif)
             container_id = self.container['id']
             instance = container_id
             self.vif_driver.plug(vif, instance)
@@ -423,7 +431,7 @@ class ContainerController(wsgi.Application):
                 filename = os.path.basename(path)
 
                 content = content_base64 if plain else base64.b64decode(content_base64)
-                LOG.debug("inject file %s, content: len = %d, partial = %s", path, len(content), content[:30])
+                LOG.debug(_("Inject file %s, content: len = %d, partial = %s"), path, len(content), content[:30])
 
                 # ugly but works
                 _tarinfo =  tarfile.TarInfo(filename)
@@ -452,7 +460,7 @@ class ContainerController(wsgi.Application):
             LOG.exception(e)
             raise exception.InjectFailed(path='', reason=repr(e) + str(e.message))
         finally:
-            LOG.debug("clean temp tar name %d %s", fd, name)
+            LOG.debug(_("Clean temp tar name %d %s"), fd, name)
             os.close(fd)
             os.remove(name)
 
@@ -482,7 +490,7 @@ class ContainerController(wsgi.Application):
         # files from the instance filesystem to local files, make any
         # necessary changes, and then copy them back.
 
-        LOG.debug("Inject admin password admin_passwd=<SANITIZED>")
+        LOG.debug(_("Inject admin password admin_passwd=<SANITIZED>"))
         admin_user = 'root'
 
         passwd_path = os.path.join('/etc', 'passwd')
@@ -501,13 +509,13 @@ class ContainerController(wsgi.Application):
         self._inject_password(admin_password)
 
     def _add_mapping(self, volume_id, mountpoint, device=''):
-        LOG.debug("attach volume %s : device %s, mountpoint %s", volume_id, device, mountpoint)
+        LOG.debug(_("Attach volume %s : device %s, mountpoint %s"), volume_id, device, mountpoint)
         if not device:
             link_file = volume_link_path(volume_id)
             if os.path.islink(link_file):
                 device = os.path.realpath(link_file)
             else:
-                LOG.warn("can't find the device of volume %s when attaching volume", volume_id)
+                LOG.warn(_("Can't find the device of volume %s when attaching volume"), volume_id)
                 return
         else:
             if not device.startswith("/dev/"):
@@ -533,11 +541,11 @@ class ContainerController(wsgi.Application):
             dev_path = os.path.realpath(link_file)
             # ignore the docker root volume
             if dev_path != self.root_dev_path:
-                LOG.debug("dettach volume %s", volume_id)
+                LOG.debug(_("Dettach volume %s"), volume_id)
                 if ensure:
                     # ensure the device path is not visible in host/container
                     if check_dev_exist(dev_path):
-                        LOG.warn("try to delete device %s, but it seems exist.", dev_path)
+                        LOG.warn(_("Try to delete device %s, but it seems exist."), dev_path)
                     utils.trycmd('bash', '-c', 'echo 1 > /sys/block/%s/device/delete' % dev_path.replace('/dev/',''))
                 self._volume_mapping.pop(volume_id)
                 os.remove(link_file)
@@ -545,15 +553,15 @@ class ContainerController(wsgi.Application):
     def create_image(self, request, image_name, image_id):
         """ Create a image from the container. """
         repository = self._get_repository(image_name)
-        LOG.debug("creating image from repo = %s, tag = %s", repository, image_id)
+        LOG.debug(_("Creating image from repo = %s, tag = %s"), repository, image_id)
         def _create_image_cb():
-            LOG.debug("pushing image %s", repository)
+            LOG.debug(_("Pushing image %s"), repository)
             self.docker.commit(self.container['id'], repository=repository,
                 tag=image_id)
             self.docker.push(repository, tag=image_id, insecure_registry=True)
-            LOG.debug("doing image %s", repository)
+            LOG.debug(_("Doing image %s"), repository)
         task = addtask(_create_image_cb)
-        LOG.debug("created image task %s", task)
+        LOG.debug(_("Created image task %s"), task)
         return task
 
     def pause(self, request):
