@@ -1,4 +1,5 @@
 import sys
+import eventlet
 
 from wormhole import config
 from wormhole.common import log as logging

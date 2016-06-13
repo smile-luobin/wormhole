@@ -22,7 +22,6 @@ import base64
 import tempfile
 import tarfile
 import StringIO
-import eventlet
 
 import time
 import sys, traceback
@@ -574,7 +573,10 @@ class ContainerController(wsgi.Application):
         return { "logs": self.docker.logs(self.container['id']) }
 
     def status(self, request):
-        container = self.docker.containers(all=True)[0]
+        try:
+            container = (self.docker.containers(all=True) or [{"status":"No container exists"}])[0]
+        except Exception as e:
+            raise exception.ContainerManagerNotFound()
         return { "status": container['status'] }
 
     def image_info(self, request):

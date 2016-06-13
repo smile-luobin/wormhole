@@ -146,3 +146,6 @@ class ContainerStartFailed(WormholeException):
 
 class InjectFailed(WormholeException):
     msg_fmt = _("Inject file %(path)s failed: %(reason)s")
+
+class ContainerManagerNotFound(WormholeException):
+    msg_fmt = _("Container mangager daemon not started")

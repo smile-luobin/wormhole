@@ -13,7 +13,6 @@ import os
 from oslo.config import cfg
 CONF = cfg.CONF
 
-
 class HostController(wsgi.Application):
 
     def list_volume(self, request):
