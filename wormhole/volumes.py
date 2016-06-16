@@ -7,6 +7,7 @@ from wormhole.common import units
 
 from oslo.config import cfg
 from wormhole.common import log
+from wormhole.i18n import _
 
 import functools
 import uuid

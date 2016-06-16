@@ -33,7 +33,10 @@ from docker import errors as dockerErrors
 container_opts = [
     cfg.StrOpt('container_volume_link_dir',
         default="/home/.by-volume-id",
-        help='The dir containing symbolic files named volume-id targeting device path.')
+        help='The dir containing symbolic files named volume-id targeting device path.'),
+    cfg.StrOpt('container_driver',
+        default="docker",
+        help='The container manager'),
 ]
 
 CONF = cfg.CONF
@@ -140,7 +143,7 @@ class ContainerController(wsgi.Application):
             for bdm in block_device_info.get('block_device_mapping', []):
                 LOG.debug(_("Attach block device mapping %s"), bdm)
                 mount_device = bdm['mount_device']
-                size_in_g = bdm['size']
+                size_in_g = bdm.get('size', "0")
                 volume_id = bdm['connection_info']['data']['volume_id']
                 new_volume_mapping[volume_id] = {"mount_device" : mount_device, "size": str(size_in_g) + "G"}
 
@@ -259,7 +262,7 @@ class ContainerController(wsgi.Application):
                 except Exception as e:
                     LOG.exception(e)
         try:
-            _ = self.container
+            container = self.container
             LOG.warn(_("Already a container exists"))
             # Do the work anyway
             _do_create()
@@ -573,11 +576,26 @@ class ContainerController(wsgi.Application):
         return { "logs": self.docker.logs(self.container['id']) }
 
     def status(self, request):
+        STATUS_MESSAGE_MAP = { 1 : "Container manager not started",
+                2 : "No image exists",
+                3 : "No container exists",
+                4 : "Container is {}"
+        }
+        status = ''
         try:
-            container = (self.docker.containers(all=True) or [{"status":"No container exists"}])[0]
+            images = self.docker.images()
+            if images:
+                containers = self.docker.containers(all=True)
+                code = 4 if containers else 3
+                status = containers[0]['status'] if containers else ''
+            else: code = 2
         except Exception as e:
-            raise exception.ContainerManagerNotFound()
-        return { "status": container['status'] }
+            code = 1
+        return { "status":
+                    {  "code" : code,
+                       "message": STATUS_MESSAGE_MAP[code].format(status)
+                    }
+               }
 
     def image_info(self, request):
         image_name = request.GET.get('image_name')
