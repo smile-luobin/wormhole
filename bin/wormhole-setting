@@ -1,0 +1,18 @@
+#!/bin/bash
+NEUTRON_CONFIG_BIN=/usr/bin/neutron-agent-config
+
+eval NEUTRON_CONFIG_FILE=$(awk '{FS="="}/^NEUTRON_AGENT_CONFFILE_URL=/{found=$2}END{print found?found:"\"/home/neutron_agent_conf.txt\""}' $NEUTRON_CONFIG_BIN)
+
+_get_data() {
+  url=http://169.254.169.254/latest/user-data
+  curl -m 3 $url && curl $url -i 2>/dev/null | awk  '{exit $2>=300}'
+}
+while [ ! -f "$NEUTRON_CONFIG_FILE" ] ; do
+  _get_data && {
+    _get_data > /var/lib/wormhole/settings.json
+    break
+  }
+  
+  sleep 1
+done
+

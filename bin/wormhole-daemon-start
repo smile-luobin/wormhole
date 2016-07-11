@@ -7,7 +7,8 @@ WORMHOLE_CONFIG_DIR=/home
 
 # is this the first running, means the vm is just created this run is instance creating
 is_first=false
-is_create=false # create container or not
+# create container or not
+is_create=false
 stop docker ; umount /docker
 
 # the new config directory
