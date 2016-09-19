@@ -1,105 +1,114 @@
 #!/bin/bash
-# Device scaning interval
-SCANINTERVAL=1s
-DOCKER_DIR=/docker
 
-WORMHOLE_CONFIG_DIR=/home
+for e in "$(dirname $0)/env" "/var/lib/wormhole/bin/env" ; do
+    [ -f "$e" ] && source "$e"
+done
+
+# Device scaning interval(second)
+SCANINTERVAL=1
+
+IMAGE_FILE=user.img
+
+PORT=7127
 
 # is this the first running, means the vm is just created this run is instance creating
 is_first=false
 # create container or not
 is_create=false
-stop docker ; umount /docker
-
-# the new config directory
-[ -d /var/lib/wormhole ] && WORMHOLE_CONFIG_DIR=/var/lib/wormhole
+is_reboot=false
 
 cd $WORMHOLE_CONFIG_DIR
+
 NEUTRON_CONFIG_BIN=/usr/bin/neutron-agent-config
 eval NEUTRON_CONFIG_FILE=$(awk '{FS="="}/^NEUTRON_AGENT_CONFFILE_URL=/{found=$2}END{print found?found:"\"/home/neutron_agent_conf.txt\""}' $NEUTRON_CONFIG_BIN)
+NEUTRON_CONFIG_FILE=${NEUTRON_CONFIG_FILE:-/home/neutron_agent_conf.txt}
 
-WORMHOLE_SETTING_FILE=$WORMHOLE_CONFIG_DIR/settings.json
-
-LINK_DIR=$WORMHOLE_CONFIG_DIR/.by-volume-id
-LINK_MAIN_DEVICE_NAME=docker-data-device-link
-LINK_MAIN_FILE="$LINK_DIR/$LINK_MAIN_DEVICE_NAME"
 
 WORMHOLE_CONFIG_FILE=config
 
 PROJECT_CONFIG_FILE=/etc/wormhole/wormhole.conf
 
-IMAGE_NAME=ubuntu-upstart
-IMAGE_FILE=ubuntu-upstart.tar
-# for compatible
-[ -f $IMAGE_FILE ] || IMAGE_FILE=/home/$IMAGE_FILE
-
-LOG_FILE=/var/log/docker_start.log
+LOG_FILE=/var/log/wormhole/daemon_start.log
 
 TMPDIR=.
 [ -w /tmp ] && TMPDIR=/tmp
 
 container_driver=$(awk 'sub(/^container_driver\s*=\s*/,e)' $PROJECT_CONFIG_FILE)
 
-do_container_manager() {
-  service docker $1
-}
-
 wormhole_start_bg() {
-    (pgrep -fl 'python .*/wormhole-api$' >/dev/null || wormhole-api >/dev/null 2>&1 &)
+    pgrep -fl 'python .*/wormhole-api$' >/dev/null || (wormhole-api >/dev/null 2>&1 &)
 }
 
-mkfs_data_volume() {
+find_data_volume() {
     echo "start fmt mount data disk $(date)"
-    first_disk=$(readlink -f "$LINK_MAIN_FILE")
-    [ -b "$first_disk" ]  || {
-            # remove the link
-      [ -h "$LINK_MAIN_FILE" ] && rm "$LINK_MAIN_FILE"
+    user_device=$(readlink -f "$DEVICE_LINK")
+    [ -b "$user_device" ]  || {
+      # remove the link
+      [ -h "$DEVICE_LINK" ] && rm "$DEVICE_LINK"
       echo "scaning host disk:"
       while :; do
          for s in /sys/class/scsi_host/host*/scan; do
              echo "- - -" > "$s"
          done
-         first_disk=/dev/$(lsblk -d -o 'NAME,TYPE' | awk 'NR>1&&$NF=="disk"&&$1!~"^x?[a-z]?d?a$"&&NF=1{print;exit }')
-         [ -b "$first_disk" ] && ! mount | grep "$first_disk" && break
-         sleep $SCANINTERVAL
+         user_device=$(lsblk -n -d -o 'NAME,TYPE' | awk '
+             $NF=="disk"&&$1~/^x?[a-z]?d?[a-z]$/{
+             d="/dev/"$1; for(found=0;"lsblk "d|getline;)found+=$NF=="/";
+             if(found)next
+             print d;exit}')
+         [ -b "$user_device" ] && break
+         sleep ${SCANINTERVAL}s
+         (((ii+=SCANINTERVAL)%60)) || echo scaning host disk device total $ii seconds...
       done
       lsblk
-      ln -sf $first_disk $LINK_MAIN_FILE
-      echo found data disk $first_disk
+      ln -sf $user_device $DEVICE_LINK
+      echo found data disk $user_device
     }
 
-    mount $first_disk $DOCKER_DIR 2>&1 | grep 'you must specify the filesystem type' && {
-      # format the device
-      is_first=true
-      echo "start format disk $(date): format $first_disk mkfs.ext4 -F $first_disk"
-      {
-          mkfs.ext4 -F $first_disk
-          mount $first_disk $DOCKER_DIR
-      } &
-      echo "end format disk $(date)"
-    }
-    echo "end fmt mount data disk $(date)"
 }
 
+image_downloaded() {
+[ -f $IMAGE_DOWNLOADED ]
+}
+
+found_bootable() {
+    boot=$(fdisk -l $user_device | awk '/^\/dev\//&&$2=="*"{print $1}')
+    echo $boot
+
+}
+check_image_first() {
+    [ -f "$IMAGE_FILE" ] && touch "$IMAGE_DOWNLOADED"
+}
 
 # load local image
-load_local_image() {
+wait_load_image() {
+    # for compatible
+    while ! image_downloaded  ; do
+        sleep 1
+    done
 
-    mount | grep -w "$DOCKER_DIR" && {
+    bootable=$(found_bootable)
+    [ -b "$bootable" ] && echo "already convert: bootable $bootable" && return 0
+    [ -f $IMAGE_FILE ] && {
 
-        do_container_manager status | grep running && {
-            ! docker images $IMAGE_NMAE| grep $IMAGE_NAME  && docker load --input $IMAGE_FILE && {
-                echo start docker import image $(date)
-                docker images | grep $IMAGE_NAME || docker tag $(docker images -aq) $IMAGE_NAME
-                echo end docker import image $IMAGE_NAME from $IMAGE_FILE successfully $(date)
-            }
+        echo found IMAGE $(date)
+        echo convert $IMAGE_FILE $user_device
+        time qemu-img convert $IMAGE_FILE $user_device && {
+            touch "$IMAGE_CONVERTED"
+            echo " convert successfully"
+        } || {
+            echo "convert failed ret code:$?"
+            return 2
         }
+        is_first=true
+        bootable=$(found_bootable)
+
     }
+
 }
 
 update_config() {
 
-    [ false = ${is_first} ] && return
+    [ zfalse = z${is_first} ] && return
     echo update config $(date)
 
     [ -f "$WORMHOLE_CONFIG_FILE" ] || touch "$WORMHOLE_CONFIG_FILE"
@@ -113,10 +122,7 @@ update_config() {
     [ -n "$registry_url" ] && {
         insecure_registry_opt="--insecure-registry=$registry_url"
 
-        docker_opts="DOCKER_OPTS=\"--debug --graph=$DOCKER_DIR $insecure_registry_opt \""
-
-        # update docker option
-        awk -v d="$docker_opts" '!/^DOCKER_OPTS/;END{print d}' /etc/default/docker > $TMPDIR/.$$ && mv $TMPDIR/.$$ /etc/default/docker || rm $TMPDIR/.$$
+        # awk -v d="$docker_opts" '!/^DOCKER_OPTS/;END{print d}' /etc/default/docker > $TMPDIR/.$$ && mv $TMPDIR/.$$ /etc/default/docker || rm $TMPDIR/.$$
 
     }
     # update wormhole project config
@@ -124,21 +130,21 @@ update_config() {
 
     wormhole_parent_pid=$(ps  -eo pid,ppid,cmd |grep '/wormhole-api$' | awk 'r&&$0=r~FS$1FS?$1:$2;{r=FS$0}' )
     # wormhole reload the configure
-    echo kill -SIGHUP $wormhole_parent_pid 
+    echo kill -SIGHUP $wormhole_parent_pid
     kill $wormhole_parent_pid && sleep .5 && wormhole_start_bg
 }
 
 
-load_config() {
+wait_load_config() {
     echo load config
 
     while ! [ -e "$WORMHOLE_SETTING_FILE" ] && ! [ -e "$NEUTRON_CONFIG_FILE" ]; do
         sleep 1
     done
 
-    [ false = ${is_first} ] && return
+    [ zfalse = z${is_first} ] && return
 
-    [ ! -e "$NEUTRON_CONFIG_FILE" ] && 
+    [ ! -e "$NEUTRON_CONFIG_FILE" ] &&
     [ -e "$WORMHOLE_SETTING_FILE" ] && {
         # extract config
         is_create=true
@@ -156,13 +162,14 @@ with open('$WORMHOLE_CONFIG_FILE', 'w') as f:f.write('\n'.join('%s=%s'%(k,v)for 
 "
     true
     }
-    $NEUTRON_CONFIG_BIN >>/var/log/neutron-agent-config.log 2>&1 
+    $NEUTRON_CONFIG_BIN >>/var/log/neutron-agent-config.log 2>&1
     update_config
 }
 
 create_start_container() {
-    [ z$is_create = ztrue ]  || return
+    [ z$is_create = ztrue -o z$is_reboot = ztrue ]  || return
 
+    while ! netstat -tln|grep :$PORT ;  do sleep .5 ; done
     # create and start container
     python -c "
 
@@ -172,11 +179,13 @@ setting = json.load(open('$WORMHOLE_SETTING_FILE'));
 import wormholeclient as wc
 C = wc.client.Client('127.0.0.1')
 
-create_extra_fields = ['root_volume_id', 'network_info', 'block_device_info', 'inject_files', 'admin_password']
-create_kws = dict((k, setting.get(k))for k in create_extra_fields)
-ct = C.create_container(setting['image_name'], setting['image_id'], **create_kws)
-while C.query_task(ct)['code'] == wc.constants.TASK_DOING: time.sleep(1)
+def create():
+  create_extra_fields = ['root_volume_id', 'network_info', 'block_device_info', 'inject_files', 'admin_password']
+  create_kws = dict((k, setting.get(k))for k in create_extra_fields)
+  ct = C.create_container(setting['image_name'], setting['image_id'], **create_kws)
+  while ct['code'] == wc.constants.TASK_DOING: time.sleep(1);ct = C.query_task(ct)
 
+if '$is_create' == 'true':create()
 
 start_fields = ['block_device_info', 'network_info']
 start_params = dict((k, setting.get(k))for k in start_fields)
@@ -184,19 +193,38 @@ C.start_container(**start_params)"
 }
 
 fix_default_gw() {
-    local gateway=$(ifconfig eth0 | awk  'sub(/.*inet addr:/,e){gsub(/Bcast:|Mask:|[.]/,FS);for(;q++<4;r=r (ee=r?".":e) rr)for(rr=q==4;+ee<8;ee++)rr+=(int($(8+q)/2^ee%2)&&int($q/2^ee%2))*2^ee;print r}')
-    ip route replace default via $gateway
+
+
+    local netname=$(basename $(dirname $(echo /sys/class/net/*/device|head -n1)))
+    local gateway=$(ip addr show dev $netname | awk '{FS="[/. ]"}sub(/^ +inet /,e){for(;i<32;){j=7-i%8;n+=(i<$5?int($(i/8+1)/2^j%2)*2^j:(i==31)*2^j);++i%8||r=r (r?".":_)n (n=_)};print r;exit}')
+    echo ip route replace default via $gateway
+}
+
+do_mount() {
+    bootable=$(found_bootable)
+    [ -b "$bootable" ] && {
+        mount "$bootable" "$MOUNT_PATH"
+        echo "mount bootable $bootable on $MOUNT_PATH"
+        ln -sf $bootable $BOOT_DEVICE_LINK
+    }
+}
+
+check_reboot() {
+    [ -f "$REBOOT_IN_CONTAINER" ] && {
+        is_reboot=true
+        rm "$REBOOT_IN_CONTAINER"
+    }
 }
 
 exec >> $LOG_FILE 2>&1
 
-echo "start docker-daemon-start $(date)"
+echo "============ start wormhole-daemon-start $(date)"
 
-for d in $LINK_DIR $DOCKER_DIR; do
+for d in $LINK_DIR $MOUNT_PATH; do
   [ -d "$d" ] || mkdir "$d"
 done
 
-vars="NEUTRON_CONFIG_FILE NEUTRON_CONFIG_BIN WORMHOLE_SETTING_FILE WORMHOLE_CONFIG_DIR WORMHOLE_CONFIG_DIR LINK_DIR LINK_MAIN_FILE LINK_MAIN_DEVICE_NAME IMAGE_NAME IMAGE_FILE"
+vars="NEUTRON_CONFIG_FILE NEUTRON_CONFIG_BIN WORMHOLE_SETTING_FILE WORMHOLE_CONFIG_DIR LINK_DIR IMAGE_FILE"
 
 echo
 echo ===== MAIN CONFIG ========
@@ -206,21 +234,27 @@ done
 echo ==========================
 echo
 
-do_container_manager stop
+iptables-save | grep $PORT || iptables -A IN_public_allow -p tcp -m tcp --dport $PORT -m conntrack --ctstate NEW -j ACCEPT
 
+
+(bin/wormhole-setting&)
+
+check_reboot
+check_image_first
 fix_default_gw
 
 wormhole_start_bg
 
-mkfs_data_volume
-load_config
-# wait mkfs to complete
-wait
+find_data_volume
+wait_load_image
 
-do_container_manager restart
+wait_load_config
 
-load_local_image
+# mount
+do_mount
 
+wormhole_start_bg
 create_start_container
 
-echo "end docker-daemon-start first:${is_first} create:${is_create} $(date)"
+echo "end wormhole-daemon-start first:${is_first} create:${is_create} is_reboot:${is_reboot} $(date)"
+echo

@@ -3,6 +3,7 @@
 import math
 import crypt
 import random
+import re
 
 from wormhole import exception
 from wormhole.i18n import _
@@ -242,6 +243,7 @@ def set_passwd(username, admin_passwd, passwd_data, shadow_data):
 
     return "\n".join(new_shadow)
 
+DEVICE_RE = re.compile(r'^x?[a-z]?d?[a-z]$')
 def list_device():
     """
     Example returns:
@@ -256,7 +258,7 @@ def list_device():
     for dev in dev_out.strip().split('\n'):
         res = dev.split()
         name, disk_type = res[:2]
-        if disk_type == 'disk' and not name.endswith('da'):
+        if disk_type == 'disk' and not name.endswith('da') and DEVICE_RE.match(name):
             res[0] = "/dev/" + name
             dev_list.append(dict(zip(filter_fields, res)))
     LOG.debug("scan host devices: %s", dev_list)

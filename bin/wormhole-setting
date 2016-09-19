@@ -1,18 +1,38 @@
 #!/bin/bash
-NEUTRON_CONFIG_BIN=/usr/bin/neutron-agent-config
 
+exec >/var/log/wormhole/setting.log 2>&1
+
+for e in "$(dirname $0)/env" "/var/lib/wormhole/bin/env" ; do
+    [ -f "$e" ] && source "$e"
+done
+
+echo "$(basename $0) start at $(date)"
+source 
+
+NEUTRON_CONFIG_BIN=/usr/bin/neutron-agent-config
 eval NEUTRON_CONFIG_FILE=$(awk '{FS="="}/^NEUTRON_AGENT_CONFFILE_URL=/{found=$2}END{print found?found:"\"/home/neutron_agent_conf.txt\""}' $NEUTRON_CONFIG_BIN)
+
+NEUTRON_CONFIG_FILE=${NEUTRON_CONFIG_FILE:-/home/neutron_agent_conf.txt}
+
+
+JSON_FILE=${WORMHOLE_SETTING_FILE:-/var/lib/wormhole/settings.json}
 
 _get_data() {
   url=http://169.254.169.254/latest/user-data
   curl -m 3 $url && curl $url -i 2>/dev/null | awk  '{exit $2>=300}'
 }
-while [ ! -f "$NEUTRON_CONFIG_FILE" ] ; do
+while [ ! -f "$JSON_FILE" -a ! -f "$NEUTRON_CONFIG_FILE" ] ; do
   _get_data && {
-    _get_data > /var/lib/wormhole/settings.json
+    _get_data > $JSON_FILE
     break
   }
   
   sleep 1
 done
+
+[ -f "$JSON_FILE" ] && {
+    echo "$(date) FOUND JSON HERE: -----------"
+    cat $JSON_FILE | python -mjson.tool
+}
+echo -e "end at $(date)\n"
 

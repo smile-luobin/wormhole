@@ -1,0 +1,486 @@
+#!/bin/bash
+#
+# template script for container for LXC
+
+#
+# Use the Mitre standard CPE identifier for the release ID if possible...
+# This may be in /etc/os-release or /etc/system-release-cpe.  We
+# should be able to use EITHER.  Give preference to /etc/os-release for now.
+
+# Make sure the usual locations are in PATH
+export PATH=$PATH:/usr/sbin:/usr/bin:/sbin:/bin
+echo "start template script $(date)"
+
+if [ -e /etc/os-release ]
+then
+# This is a shell friendly configuration file.  We can just source it.
+# What we're looking for in here is the ID, VERSION_ID and the CPE_NAME
+    . /etc/os-release
+    echo "Host CPE ID from /etc/os-release: ${CPE_NAME}"
+fi
+
+if [ "${CPE_NAME}" = "" -a -e /etc/system-release-cpe ]
+then
+    CPE_NAME=$(head -n1 /etc/system-release-cpe)
+    CPE_URI=$(expr ${CPE_NAME} : '\([^:]*:[^:]*\)')
+    if [ "${CPE_URI}" != "cpe:/o" ]
+    then
+        CPE_NAME=
+    else
+        # Probably a better way to do this but sill remain posix
+        # compatible but this works, shrug...
+        # Must be nice and not introduce convenient bashisms here.
+        #
+        # According to the official registration at Mitre and NIST,
+        # this should have been something like this for CentOS:
+        #    cpe:/o:centos:centos:6
+        # or this:
+        #    cpe:/o:centos:centos:6.5
+        #
+        ID=$(expr ${CPE_NAME} : '[^:]*:[^:]*:[^:]*:\([^:]*\)')
+        # The "enterprise_linux" is a bone toss back to RHEL.
+        # Since CentOS and RHEL are so tightly coupled, we'll
+        # take the RHEL version if we're running on it and do the
+        # equivalent version for CentOS.
+        if [ ${ID} = "linux" -o ${ID} = "enterprise_linux" ]
+        then
+                # Instead we got this: cpe:/o:centos:linux:6
+                ID=$(expr ${CPE_NAME} : '[^:]*:[^:]*:\([^:]*\)')
+        fi
+
+        VERSION_ID=$(expr ${CPE_NAME} : '[^:]*:[^:]*:[^:]*:[^:]*:\([^:]*\)')
+        echo "Host CPE ID from /etc/system-release-cpe: ${CPE_NAME}"
+    fi
+fi
+
+if [ "${CPE_NAME}" != "" -a "${ID}" = "centos" -a "${VERSION_ID}" != "" ]
+then
+    centos_host_ver=${VERSION_ID}
+    is_centos=true
+elif [ "${CPE_NAME}" != "" -a "${ID}" = "redhat" -a "${VERSION_ID}" != "" ]
+then
+    redhat_host_ver=${VERSION_ID}
+    is_redhat=true
+elif [ -e /etc/centos-release ]
+then
+    # Only if all other methods fail, try to parse the redhat-release file.
+    centos_host_ver=$( sed -e '/^CentOS /!d' -e 's/CentOS.*\srelease\s*\([0-9][0-9.]*\)\s.*/\1/' < /etc/centos-release )
+    if [ "$centos_host_ver" != "" ]
+    then
+        is_centos=true
+    fi
+fi
+
+fix_selinux()
+{
+    # Todo..
+    [ -z "$both_selinux" ] && return
+    return 0
+}
+fix_audit()
+{
+    # Todo..
+    return 0
+}
+fix_halt()
+{
+    # Deal with some dain bramage in the /etc/init.d/halt script.
+    # Trim it and make it our own and link it in before the default
+    # halt script so we can intercept it.  This also preventions package
+    # updates from interferring with our interferring with it.
+    #
+    # There's generally not much in the halt script that useful but what's
+    # in there from resetting the hardware clock down is generally very bad.
+    # So we just eliminate the whole bottom half of that script in making
+    # ourselves a copy.  That way a major update to the init scripts won't
+    # trash what we've set up.
+    if [ -f ${rootfs_path}/etc/init.d/halt ]
+    then
+        sed -e '/hwclock/,$d' \
+            < ${rootfs_path}/etc/init.d/halt \
+            > ${rootfs_path}/etc/init.d/lxc-halt
+
+        echo '$command -f' >> ${rootfs_path}/etc/init.d/lxc-halt
+        chmod 755 ${rootfs_path}/etc/init.d/lxc-halt
+
+        # Link them into the rc directories...
+        (
+             cd ${rootfs_path}/etc/rc.d/rc0.d
+             ln -s ../init.d/lxc-halt S00lxc-halt
+             cd ${rootfs_path}/etc/rc.d/rc6.d
+             ln -s ../init.d/lxc-halt S00lxc-reboot
+        )
+    fi
+}
+
+fix_fstab()
+{
+user_fstab="$rootfs_path/etc/fstab"
+# found root name in fstab, if not found, then use regex "/dev/.+da"
+root=$(awk '!/^\s*#/&&$2=="/"&&$1~"/dev/"{sub(/[0-9]+/,e,$1);a=$1}END{print a?a:"/dev/.+da"}' $user_fstab)
+
+#
+# modify fstab, use following rule:
+# 1. comment / entry
+# 2. comment the non-root and not-existing invalid device entry
+# 3. comment proc, sysfs, tempfs, etc
+# 4. modify the partitons of root device of the entry into "UUID=" or "LABEL=", if use "/dev/sda2" format
+
+awk -v b=$user_device -v r=$root '
+BEGIN{for(;"blkid"|getline;){
+gsub(/"/,e);B[$2]=B[$3]=1
+sub(b,e,$1)&&A[$1]=$2
+}
+}
+/^\s*#|^\s*$/{print;next}
+$1~r&&$2!="/"{p="# modified by lxc\n# original is: "$0"\n";sub(r,e,$1);$1=A[$1":"];print p $0;next}
+$2=="/"||!B[$1]{print "# comment by lxc\n# "$0;next}
+1
+' "$user_fstab" > /tmp/.fstab.$$ && mv /tmp/.fstab.$$ "$user_fstab" || rm /tmp/.fstab.$$
+}
+
+fix_securetty()
+{
+
+    [ -e "${rootfs_path}/etc/securetty" ] && {
+    # allow root login on console, tty[1-4], and pts/0 for libvirt
+    cat <<-EOF  >>${rootfs_path}/etc/securetty
+	# LXC (Linux Containers)
+	lxc/console
+	lxc/tty1
+	lxc/tty2
+	lxc/tty3
+	lxc/tty4
+	# For libvirt/Virtual Machine Monitor
+	pts/0
+	EOF
+    }
+
+    # prevent mingetty from calling vhangup(2) since it fails with userns.
+    # Same issue as oracle template: prevent mingetty from calling vhangup(2)
+    # commit 2e83f7201c5d402478b9849f0a85c62d5b9f1589.
+    local tty=$rootfs_path/etc/init/tty.conf
+    [ -e "$tty" ] && sed -i 's|mingetty|mingetty --nohangup|' $tty
+
+    # This will need to be enhanced for CentOS 7 when systemd
+    # comes into play...   /\/\|=mhw=|\/\/
+
+    return 0
+}
+
+fix_stop_timeout_issue()
+{
+    chroot ${rootfs_path} chkconfig network on
+
+    if [ -d ${rootfs_path}/etc/init ]
+    then
+       # This is to make upstart honor SIGPWR
+        cat <<EOF >${rootfs_path}/etc/init/power-status-changed.conf
+#  power-status-changed - shutdown on SIGPWR
+#
+start on power-status-changed
+    
+exec /sbin/shutdown -h now "SIGPWR received"
+EOF
+    fi
+}
+mount_selinux() 
+{
+    [ -z "$both_selinux" ] && return
+    for seentry in sys/fs/selinux selinux ; do 
+        [ -d /$seentry ] && {
+            echo lxc.mount.entry = /$seentry $seentry none bind 0 0
+            break
+        }
+    done
+}
+
+generate_configuration()
+{
+    cat <<EOF >> $config_path/common.conf
+# Below are taken from the oracle.common.conf.in
+# Console settings
+
+lxc.devttydir = lxc
+lxc.tty = 4
+lxc.pts = 1024
+
+# Mount entries
+lxc.mount.auto = proc:mixed sys:ro
+
+# Ensure hostname is changed on clone
+lxc.hook.clone = /usr/share/lxc/hooks/clonehostname
+
+# Capabilities
+# Uncomment these if you don't run anything that needs the capability, and
+# would like the container to run with less privilege.
+#
+# Dropping sys_admin disables container root from doing a lot of things
+# that could be bad like re-mounting lxc fstab entries rw for example,
+# but also disables some useful things like being able to nfs mount, and
+# things that are already namespaced with ns_capable() kernel checks, like
+# hostname(1).
+# lxc.cap.drop = sys_admin
+# lxc.cap.drop = net_raw          # breaks dhcp/ping
+# lxc.cap.drop = setgid           # breaks login (initgroups/setgroups)
+# lxc.cap.drop = dac_read_search  # breaks login (pam unix_chkpwd)
+# lxc.cap.drop = setuid           # breaks sshd,nfs statd
+# lxc.cap.drop = audit_control    # breaks sshd (set_loginuid failed)
+# lxc.cap.drop = audit_write
+# lxc.cap.drop = setpcap          # big big login delays in CentOS 7 systemd
+#
+#lxc.cap.drop = mac_admin mac_override setfcap
+#lxc.cap.drop = sys_module sys_nice sys_pacct
+lxc.cap.drop = sys_rawio sys_time
+
+# Control Group devices: all denied except those whitelisted
+lxc.cgroup.devices.deny = a
+# Allow any mknod (but not reading/writing the node)
+lxc.cgroup.devices.allow = c *:* m
+lxc.cgroup.devices.allow = b *:* m
+## /dev/null
+lxc.cgroup.devices.allow = c 1:3 rwm
+## /dev/zero
+lxc.cgroup.devices.allow = c 1:5 rwm
+## /dev/full
+lxc.cgroup.devices.allow = c 1:7 rwm
+## /dev/tty
+lxc.cgroup.devices.allow = c 5:0 rwm
+## /dev/random
+lxc.cgroup.devices.allow = c 1:8 rwm
+## /dev/urandom
+lxc.cgroup.devices.allow = c 1:9 rwm
+## /dev/tty[1-4] ptys and lxc console
+lxc.cgroup.devices.allow = c 136:* rwm
+## /dev/ptmx pty master
+lxc.cgroup.devices.allow = c 5:2 rwm
+
+# Blacklist some syscalls which are not safe in privileged
+# containers
+#lxc.seccomp = /usr/share/lxc/config/common.seccomp
+EOF
+    # Append things which require expansion here...
+    cat <<EOF > $config_path/config
+lxc.arch = $arch
+lxc.utsname = $utsname
+lxc.rootfs = $bootable_part
+
+lxc.autodev = 1
+
+# When using LXC with apparmor, uncomment the next line to run unconfined:
+#lxc.aa_profile = unconfined
+
+lxc.include = $config_path/common.conf
+lxc.include = $CONF_DIR
+lxc.hook.autodev = $HOOK_AUTODEV
+lxc.hook.post-stop = $HOOK_POSTSTOP
+$(mount_selinux)
+
+EOF
+    cat <<EOF > $HOOK_AUTODEV
+#!/bin/bash
+exec >> $LOG_DIR/autodev.log 2>&1
+echo "==> start \$0 at \$(date)"
+set_eth_device()
+{
+    dir=\$LXC_ROOTFS_MOUNT/sys/class/net/eth0
+    tmpdir=/tmp/.eth0.\$\$
+    mkdir \$tmpdir
+    cp -aH \$dir/* \$tmpdir/
+    mount -t tmpfs tmpfs \$dir
+    mkdir \$dir/device
+    mv  \$tmpdir/* \$dir/
+
+    rmdir \$tmpdir
+}
+
+set_eth_device
+
+# fix /dev/ selinux context
+chroot \$LXC_ROOTFS_MOUNT /sbin/setfiles -q -l -F -p /etc/selinux/targeted/contexts/files/file_contexts /dev
+
+for i in $HOOK_DIR/autodev_*.sh ; do source \$i ; done
+
+echo "==> end at \$(date)"
+
+true
+EOF
+    cat <<EOF > $HOOK_POSTSTOP
+#!/bin/bash
+#exit 0
+if [ x\${LXC_TARGET} = xreboot ] ; then
+    touch $REBOOT_IN_CONTAINER
+    reboot
+elif [ x\${LXC_TARGET} = xstop ] ; then
+    exit 0
+    shutdown -h now
+fi
+# force lxc exit
+exit 1
+
+EOF
+    chmod u+x $HOOK_AUTODEV $HOOK_POSTSTOP
+
+    return 0
+}
+
+usage()
+{
+    cat <<EOF
+usage:
+    $1 -n|--name=<container_name>
+        [-p|--path=<path>]
+        [-h|--help]
+Mandatory args:
+  -n,--name         container name, used to as an identifier for that container from now on
+Optional args:
+  -p,--path         path to where the container rootfs will be created, defaults to /var/lib/lxc/name.
+  --rootfs          path to where the container rootfs will be created, defaults to /var/lib/lxc/name.
+
+  -h,--help         print this help
+EOF
+    return 0
+}
+
+echo "Template arguments are $@"
+
+options=$(getopt -o hp:n: -l help,path:,name:,rootfs: -- "$@")
+if [ $? -ne 0 ]; then
+    usage $(basename $0)
+    exit 1
+fi
+
+eval set -- "$options"
+while true
+do
+    case "$1" in
+        -h|--help)      usage $0 && exit 0;;
+        -p|--path)      path=$2; shift 2;;
+        --rootfs)       rootfs_path=$2; shift 2;;
+        -n|--name)      name=$2; shift 2;;
+        --)             shift 1; break ;;
+        *)              break ;;
+    esac
+done
+
+. "$(dirname $0)/env"
+
+
+rootfs_path=$MOUNT_PATH
+
+#Configurations
+
+default_path=$(lxc-config lxc.lxcpath || echo /var/lib/lxc)
+
+if [ -z "$path" ]; then
+    path=$default_path/$name
+fi
+CONF_DIR=$path/conf.d
+
+HOOK_DIR=$path/hooks
+HOOK_AUTODEV=$HOOK_DIR/autodev.sh
+HOOK_POSTSTOP=$HOOK_DIR/post-stop.sh
+
+LOG_DIR=$path/log
+
+
+for d in $CONF_DIR $HOOK_DIR $LOG_DIR; do
+    [ -d $d ] || mkdir -p $d
+done
+
+config_path=$path
+
+if [ -z "$release" ]; then
+    if [ "$is_centos" -a "$centos_host_ver" ]; then
+        release=$centos_host_ver
+    elif [ "$is_redhat" -a "$redhat_host_ver" ]; then
+        # This is needed to clean out bullshit like 6workstation and 6server.
+        release=$(expr $redhat_host_ver : '\([0-9.]*\)')
+    else
+        echo "This is not a CentOS or Redhat host and release is missing, defaulting to 6 use -R|--release to specify release"
+        release=6
+    fi
+fi
+
+# CentOS 7 and above should run systemd.  We need autodev enabled to keep
+# systemd from causing problems.
+#
+# There is some ambiguity here due to the differnce between versioning
+# of point specific releases such as 6.5 and the rolling release 6.  We
+# only want the major number here if it's a point release...
+
+mrelease=$(expr $release : '\([0-9]*\)')
+if [ $mrelease -gt 6 ]; then
+    auto_dev="1"
+else
+    auto_dev="0"
+fi
+
+if [ "$(id -u)" != "0" ]; then
+    echo "This script should be run as 'root'"
+    exit 1
+fi
+
+revert()
+{
+    echo "Interrupted, so cleaning up"
+    lxc-destroy -n $name
+    echo "exiting..."
+    exit 1
+}
+
+trap revert SIGHUP SIGINT SIGTERM
+
+#  # found the user root device
+#  # 1. exclude host root device
+#  # 2. contains a bootable partition
+#  device=$(lsblk -d -n -o 'NAME,TYPE' | awk '
+#  $NF=="disk"&&$1~/^x?[a-z]?d?[a-z]$/{
+#      d="/dev/"$1;
+#      for(found=0;"lsblk "d|getline;)found+=$NF=="/";
+#      if(found)next
+#      for(;"fdisk -l "d|getline;)$1~"^"d&&$2=="*"&&boot=$1
+#      if(boot){print d,boot;exit}
+#  }')
+#  [ -z "$device" ] && { echo "can't found user boot device"; exit 1; }
+#  user_device="${device% *}"
+#  bootable_part="${device#* }"
+user_device=$(readlink -f $DEVICE_LINK)
+
+bootable_part=$(readlink -f $BOOT_DEVICE_LINK || fdisk -l $user_device | awk '/^\/dev\//&&$2=="*"{print $1}')
+
+# Both host and container support selinux
+sestatus && chroot $rootfs_path sestatus && {
+    both_selinux=true
+}
+
+[ -e "$rootfs_path/.lxc_converted" ] || {
+    echo "converted at $(date)" > $rootfs_path/.lxc_converted
+    fix_fstab
+    fix_securetty
+    fix_stop_timeout_issue
+    # fix_halt
+    fix_audit
+    fix_selinux
+}
+
+# cgroup allow disk part
+
+lsblk -r -n -o 'MAJ:MIN' -d $user_device | { IFS=: read maj min;  for((i=0;i<16;i++)) do
+echo lxc.cgroup.devices.allow = b $maj:$[min+i] rwm
+done
+} >> $CONF_DIR/root_device.conf
+
+generate_configuration
+
+if [ $? -ne 0 ]; then
+    echo "failed write configuration file"
+    exit 1
+fi
+
+
+echo "
+end template script $(date)
+Container rootfs and config have been created.
+Edit the config file to check/enable networking setup.
+"

@@ -1,0 +1,12 @@
+MOUNT_PATH=/lxc
+WORMHOLE_CONFIG_DIR=/var/lib/wormhole
+
+WORMHOLE_SETTING_FILE=$WORMHOLE_CONFIG_DIR/settings.json
+
+LINK_DIR=$WORMHOLE_CONFIG_DIR/.by-volume-id
+DEVICE_LINK="$LINK_DIR/data-device-link"
+BOOT_DEVICE_LINK="$LINK_DIR/data-bootable-device-link"
+
+IMAGE_DOWNLOADED=$WORMHOLE_CONFIG_DIR/.lxc_image_downloaded
+IMAGE_CONVERTED=$WORMHOLE_CONFIG_DIR/.lxc_image_converted
+REBOOT_IN_CONTAINER=$WORMHOLE_CONFIG_DIR/.rebooted_in_container

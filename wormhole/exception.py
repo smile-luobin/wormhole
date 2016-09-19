@@ -134,6 +134,10 @@ class TaskNotFound(NotFound):
     title = "Task Not Found"
     msg_fmt = _("Task %(id)s Not Found.")
 
+class DirNotFound(NotFound):
+    title = "Dir Not Found"
+    msg_fmt = _("Dir %(dir)s Not Found.")
+
 class ContainerCreateFailed(WormholeException):
     msg_fmt = _("Unable to create Container")
 
@@ -149,3 +153,4 @@ class InjectFailed(WormholeException):
 
 class ContainerManagerNotFound(WormholeException):
     msg_fmt = _("Container mangager daemon not started")
+    

@@ -168,8 +168,9 @@ def create_ovs_bridge(bridge_name):
 
 def create_ovs_vif_port(bridge, dev, iface_id, mac, instance_id,
                         internal=False):
-    interface_args = ['--', '--if-exists', 'del-port', dev, '--',
-                      'add-port', bridge, dev,
+    delete_ovs_vif_port(bridge, dev)
+    #interface_args = ['--', '--if-exists', 'del-port', dev, '--',
+    interface_args = ['--', 'add-port', bridge, dev,
                       '--', 'set', 'Interface', dev,
                       'external-ids:iface-id=%s' % iface_id,
                       'external-ids:iface-status=active',

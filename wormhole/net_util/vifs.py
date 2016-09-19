@@ -42,7 +42,7 @@ CONF.register_opts(network_opts)
 
 LOG = logging.getLogger(__name__)
 
-class DockerGenericVIFDriver(object):
+class GenericVIFDriver(object):
 
     def plug(self, vif, instance):
         vif_type = vif['type']
@@ -79,8 +79,6 @@ class DockerGenericVIFDriver(object):
 
         try:
             if not linux_net.device_exists(br_name):
-                # Sometimes brctl add failed with unknown reason
-                utils.execute('ls', run_as_root=True, attempts=5)
                 utils.execute('brctl', 'addbr', br_name, run_as_root=True)
                 undo_mgr.undo_with(lambda: utils.execute('brctl', 'delbr', br_name, run_as_root=True))
                 utils.execute('brctl', 'setfd', br_name, 0, run_as_root=True)
@@ -93,6 +91,7 @@ class DockerGenericVIFDriver(object):
                               check_exit_code=[0, 1])
 
             #fix bridge's state is down after host reboot.
+            
             linux_net.create_ovs_vif_port(self.get_bridge_name(vif),
                                           vm_port_name, iface_id,
                                           vif['address'], instance,
@@ -106,20 +105,6 @@ class DockerGenericVIFDriver(object):
             utils.execute('brctl', 'addif', br_name, vm_port_name,
                                 run_as_root=True)
 
-            # veth
-            utils.execute('ip', 'link', 'add', 'name', if_local_name, 'type',
-                          'veth', 'peer', 'name', if_remote_name,
-                          run_as_root=True)
-            undo_mgr.undo_with(
-                lambda: utils.execute('ip', 'link', 'delete', if_local_name,
-                                      run_as_root=True))
-
-            # Deleting/Undoing the interface will delete all
-            # associated resources (remove from the bridge, its pair, etc...)
-            utils.execute('brctl', 'addif', br_name, if_local_name,
-                          run_as_root=True)
-            utils.execute('ip', 'link', 'set', if_local_name, 'up',
-                          run_as_root=True)
         except Exception:
             msg = "Failed to configure Network." \
                 " Rolling back the network interfaces %s %s" % (
@@ -155,10 +140,6 @@ class DockerGenericVIFDriver(object):
             br_name = self.get_br_name(vif['id'])
             vm_port_name = self.get_vm_ovs_port_name(vif['id'])
 
-            if_local_name = 'tap%s' % vif['id'][:11]
-            if linux_net.device_exists(if_local_name):
-                linux_net.delete_net_dev(if_local_name)
-
             if linux_net.device_exists(br_name):
                 utils.execute('brctl', 'delif', br_name, vm_port_name,
                               run_as_root=True)
@@ -173,7 +154,9 @@ class DockerGenericVIFDriver(object):
 
     def attach(self, vif, instance, container_id, new_remote_name):
         vif_type = vif['type']
+        if_local_name = 'tap%s' % vif['id'][:11]
         if_remote_name = 'ns%s' % vif['id'][:11]
+        br_name = self.get_br_name(vif['id'])
         gateway = network.find_gateway(instance, vif['network'])
         ip = network.find_fixed_ip(instance, vif['network'])
 
@@ -183,6 +166,21 @@ class DockerGenericVIFDriver(object):
                    'vif': vif})
 
         try:
+            if linux_net.device_exists(if_local_name):
+                linux_net.delete_net_dev(if_local_name)
+
+            # veth
+            utils.execute('ip', 'link', 'add', 'name', if_local_name, 'type',
+                          'veth', 'peer', 'name', if_remote_name,
+                          run_as_root=True)
+
+            # Deleting/Undoing the interface will delete all
+            # associated resources (remove from the bridge, its pair, etc...)
+            utils.execute('brctl', 'addif', br_name, if_local_name,
+                          run_as_root=True)
+            utils.execute('ip', 'link', 'set', if_local_name, 'up',
+                          run_as_root=True)
+
             utils.execute('ip', 'link', 'set', if_remote_name, 'netns',
                           container_id, run_as_root=True)
             utils.execute('ip', 'netns', 'exec', container_id, 'ip', 'link',
