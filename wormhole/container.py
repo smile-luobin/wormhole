@@ -13,6 +13,7 @@ from wormhole.net_util import network
 from wormhole.tasks import addtask
 from wormhole.tasks import FAKE_SUCCESS_TASK, FAKE_ERROR_TASK
 
+from wormhole.state import *
 
 import six
 import os
@@ -120,13 +121,13 @@ class ContainerController(wsgi.Application):
     @property
     def container(self):
         if self._container is None:
-            containers = self.manager.containers(all=True)
+            containers = self.manager.list(all=True)
             if not containers:
                 raise exception.ContainerNotFound()
             if len(containers) > 1:
                 LOG.warn(_("Have multiple(%d) containers: %s !"), len(containers), containers)
             self._container = { "id" : containers[0]["id"],
-                    "name" : (containers[0]["names"] or ["ubuntu-upstart"]) [0] }
+                    "name" : containers[0]["name"]}
         return self._container
 
     def _attach_bdm(self, block_device_info):
@@ -324,7 +325,10 @@ class ContainerController(wsgi.Application):
             try:
                 self.plug_vifs(network_info)
             except Exception as e:
-                msg = _('Cannot setup network for container {}: {}').format(self.container['name'], repr(traceback.format_exception(*sys.exc_info())))
+                msg = _('Cannot setup network for container {}: {}').format(
+                    self.container['name'], 
+                    repr(traceback.format_exception(*sys.exc_info()))
+                )
                 LOG.debug(msg, exc_info=True)
                 raise exception.ContainerStartFailed(msg)
         self.manager.start(container_id, network_info=network_info)
@@ -583,24 +587,29 @@ class ContainerController(wsgi.Application):
         return { "logs": self.manager.logs(self.container['id']) }
 
     def status(self, request):
-        STATUS_MESSAGE_MAP = { 1 : "Container manager not started",
-                2 : "No image exists",
-                3 : "No container exists",
-                4 : "Container is {}"
-        }
-        status = ''
+        extra_msg = {}
+        extra_code = 0
+        code = 1
         try:
             images = self.manager.images()
             if images:
-                containers = self.manager.containers(all=True)
-                code = 4 if containers else 3
-                status = containers[0]['status'] if containers else ''
+                containers = self.manager.list(all=True)
+                if containers:
+                    code = 4
+                    status = containers[0]['status']
+                    extra_code = (STATUS_CODE_MAP + [status]).index(status.upper())
+                    extra_msg = {
+                        'name': containers[0]['name'],
+                        'status' : status
+                    }
+                else:
+                    code = 3
             else: code = 2
         except Exception as e:
-            code = 1
+            LOG.error(repr(traceback.format_exception(*sys.exc_info())))
         return { "status":
-                    {  "code" : code,
-                       "message": STATUS_MESSAGE_MAP[code].format(status)
+                    {  "code" : code + extra_code,
+                       "message": STATUS_MESSAGE_MAP[code]%extra_msg
                     }
                }
 

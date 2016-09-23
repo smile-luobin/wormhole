@@ -12,9 +12,6 @@ import stat
 lxc_opts = [
     cfg.StrOpt('vif_driver',
                default='wormhole.net_util.vifs.GenericVIFDriver'),
-    cfg.StrOpt('registry_url',
-        default='162.3.119.15:5000',
-               help='Registry url to pull/push images.'),
     cfg.BoolOpt('insecure_registry',
                 default=False,
                 help='Set true if need insecure registry access.'),
@@ -31,6 +28,7 @@ LXC_TEMPLATE_SCRIPT = '/var/lib/wormhole/bin/lxc-general'
 LXC_NET_CONFIG_TEMPLATE = """# new network
 lxc.network.type = veth
 lxc.network.link = %(bridge)s
+lxc.network.veth.pair = %(tap)s
 lxc.network.name = %(name)s
 lxc.network.flags = up
 lxc.network.hwaddr = %(address)s
@@ -62,6 +60,7 @@ def lxc_net_conf(name, net_name, vif):
     conf = "## START %s\n"%vif['id'][:11]
     conf += LXC_NET_CONFIG_TEMPLATE % {
                 "bridge": "qbr%s"%vif['id'][:11],
+                "tap": "tap%s"%vif['id'][:11],
                 "name": net_name,
                 "mtu": str(vif.get('mtu',1300)),
                 "address": vif['address']
@@ -83,9 +82,14 @@ class LXCClient(object):
         out, _err = utils.execute('lxc-attach', '-n', container_id, '--',  *cmd, attempts=1)
         return out
 
-    def containers(self, all=True):
-        containers, _err = utils.execute('lxc-ls')
-        return [{'id': c, 'names': [c]} for c in containers.split()] if containers else []
+    def list(self, all=True):
+        containers, _err = utils.execute('lxc-ls', '-f', '-F', 'NAME,STATE')
+        if containers:
+            # skip the header
+            containers = filter(str.strip, containers.split('\n')[1:])
+            return [{'id': name, 'status': state, 'name':name}
+                    for name, state in map(str.split, containers)]
+        return []
 
     def inspect_container(self, container_id):
         # need to return the container process pid

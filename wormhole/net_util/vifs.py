@@ -100,6 +100,8 @@ class GenericVIFDriver(object):
                 lambda: utils.execute('ovs-vsctl', 'del-port',
                                        self.get_bridge_name(vif),
                                        vm_port_name, run_as_root=True))
+            utils.execute('ip', 'link', 'set', self.get_bridge_name(vif), 'up', run_as_root=True)
+            utils.execute('ip', 'link', 'set', vm_port_name, 'up', run_as_root=True)
             utils.execute('ip', 'link', 'set', br_name, 'up', run_as_root=True)
 
             utils.execute('brctl', 'addif', br_name, vm_port_name,

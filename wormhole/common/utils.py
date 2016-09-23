@@ -92,7 +92,7 @@ def execute(*cmd, **kwargs):
         return processutils.execute(*cmd, **kwargs)
 
 def trycmd(*cmd, **kwargs):
-    return processutils.execute(*cmd, **kwargs)
+    return processutils.trymcmdexecute(*cmd, **kwargs)
 
 
 def _calculate_count(size_in_m, blocksize):
