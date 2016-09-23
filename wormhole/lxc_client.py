@@ -128,6 +128,10 @@ class LXCClient(object):
         pass
 
     def stop(self, name, timeout):
+        containers = self.list()
+        status = [c['status'] for c in containers if c['name'] == name]or ['']
+        if status and status[0] != 'RUNNING':
+            return "Container {} is {}, can't stop it".format(name, status[0])
         try:
             utils.execute('lxc-stop', '-n', name, '-t', timeout)
         except Exception as ex:
@@ -229,13 +233,16 @@ class LXCClient(object):
                 LOG.error(_('Failed to detach device %(device)s '
                               ' for %(name)s: %(ex)s'),
                           {'name': name, 'ex': ex.message, 'device': device})
+
     def remove_interfaces(self, name, network_info):
         for vif in network_info:
             _file = lxc_net_conf_file(name, vif['id'][:11])
             LOG.debug("remove net conf %s\n", vif['id'][:11])
             if os.path.isfile(_file):
                 os.remove(_file)
+
     def add_interfaces(self, name, network_info, append=True, net_names=[]):
+        network_info = network_info or []
         if not append:
             _dir = lxc_conf_dir(name)
             for _f in os.listdir(_dir):
@@ -246,7 +253,7 @@ class LXCClient(object):
 
         if not net_names:
             net_names = ["eth%d"%i for i in range(len(network_info))]
-        for net_name, vif in zip(net_names, network_info or []):
+        for net_name, vif in zip(net_names, network_info):
             conf = lxc_net_conf(name, net_name, vif)
             LOG.debug("new net conf %s, content: %s\n", vif['id'][:11], conf)
             with open(lxc_net_conf_file(name, vif['id'][:11]), "w") as f:

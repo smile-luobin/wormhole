@@ -326,25 +326,27 @@ class ContainerController(wsgi.Application):
                 self.plug_vifs(network_info)
             except Exception as e:
                 msg = _('Cannot setup network for container {}: {}').format(
-                    self.container['name'], 
+                    self.container['name'],
                     repr(traceback.format_exception(*sys.exc_info()))
                 )
                 LOG.debug(msg, exc_info=True)
                 raise exception.ContainerStartFailed(msg)
         self.manager.start(container_id, network_info=network_info)
         self._create_ns()
-        self._settings = {"network_info":network_info, "block_device_info":block_device_info}
+        self._settings = {"network_info": network_info, "block_device_info": block_device_info}
         save_settings(self._settings)
 
     def _stop(self, container_id, timeout=5):
 
+        msg = 'Stop successfully'
         try:
-            self.manager.stop(container_id, max(timeout, 5))
+            msg = self.manager.stop(container_id, min(timeout, 2))
         except Exception as e:
             self.manager.unpause(container_id)
             self.manager.stop(container_id, timeout)
         self._ns_created = False
         self._container = None
+        return msg
 
     def _sync(self):
         LOG.debug(_("Flush file system buffers"))
@@ -359,7 +361,7 @@ class ContainerController(wsgi.Application):
         """ Stop the container. """
         container_id = self.container['id']
         LOG.info(_("Stop container %s"), container_id)
-        self._stop(container_id)
+        return self._stop(container_id)
         # No sync by now
         # self._sync()
 
@@ -385,7 +387,8 @@ class ContainerController(wsgi.Application):
         """ Restart the container. """
         # return webob.Response(status_int=204)
         container_id = self.container['id']
-        LOG.info(_("Restart container %s"), container_id)
+        LOG.info(_("Restart container %s, network_info:%s, bdm:%s"),
+                 container_id, network_info, block_device_info)
         self._stop(container_id)
         try:
             network.teardown_network(container_id)
@@ -400,17 +403,12 @@ class ContainerController(wsgi.Application):
                         exc_info=True)
             return
 
-        dns = self._extract_dns_entries(network_info)
-        self.manager.start(container_id)
         try:
-            if network_info:
-                self.plug_vifs(network_info)
-                self._attach_vifs(network_info)
+            self.start(request, network_info=network_info)
         except Exception as e:
-            LOG.warning(_('Cannot setup network on reboot: %s'), e,
+            LOG.warning(_('Cannot start on reboot: %s'), e,
                         exc_info=True)
             return
-        self._create_ns()
 
     def _save_interface(self, vif, action='add'):
         if not vif:
