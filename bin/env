@@ -5,7 +5,7 @@ WORMHOLE_SETTING_FILE=$WORMHOLE_CONFIG_DIR/settings.json
 
 LINK_DIR=$WORMHOLE_CONFIG_DIR/.by-volume-id
 DEVICE_LINK="$LINK_DIR/data-device-link"
-BOOT_DEVICE_LINK="$LINK_DIR/data-bootable-device-link"
+ROOT_DEVICE_LINK="$LINK_DIR/data-root-device-link"
 
 IMAGE_DOWNLOADED=$WORMHOLE_CONFIG_DIR/.lxc_image_downloaded
 IMAGE_CONVERTED=$WORMHOLE_CONFIG_DIR/.lxc_image_converted

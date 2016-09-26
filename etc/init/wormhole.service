@@ -1,0 +1,12 @@
+[Unit]
+Description=Wormhole daemon
+After=network.target
+
+[Service]
+#EnvironmentFile=/etc/sysconfig/wormhole
+ExecStart=/var/lib/wormhole/bin/wormhole-daemon-start
+KillMode=process
+#Restart=on-failure
+
+[Install]
+WantedBy=multi-user.target

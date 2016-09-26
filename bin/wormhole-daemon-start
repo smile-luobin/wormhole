@@ -68,11 +68,32 @@ image_downloaded() {
 [ -f $IMAGE_DOWNLOADED ]
 }
 
-found_bootable() {
-    boot=$(fdisk -l $user_device | awk '/^\/dev\//&&$2=="*"{print $1}')
-    echo $boot
-
+find_bootable() {
+    fdisk -l $user_device | awk '/^\/dev\//&&$2=="*"{print $1}'
 }
+
+find_root() {
+    local MNT=/mnt
+    lsblk -r -n $user_device | while read p d ; do
+        mount /dev/$p $MNT 2>/dev/null && {
+            g=true
+            for d in  $MNT/{home,boot,etc,var,opt,dev} ; do
+                [ -h "$d" ] && d=$(readlink -f $d)
+                [ -d "$d" ] || { g=false; break; }
+            done
+            $g && { umount $MNT;echo /dev/$p;break; }
+            umount $MNT
+        }
+    done
+
+    # mount $bootable $MNT
+    # for grub in {/boot,}/{grub2/grub.cfg,grub/{grub.cfg,menu.lst}} ; do
+    #    [ -f "$MNT/$grub" ] && break
+    # done
+
+    #umount $MNT
+}
+
 check_image_first() {
     [ -f "$IMAGE_FILE" ] && touch "$IMAGE_DOWNLOADED"
 }
@@ -84,7 +105,7 @@ wait_load_image() {
         sleep 1
     done
 
-    bootable=$(found_bootable)
+    bootable=$(find_bootable)
     [ -b "$bootable" ] && echo "already convert: bootable $bootable" && return 0
     [ -f $IMAGE_FILE ] && {
 
@@ -98,7 +119,7 @@ wait_load_image() {
             return 2
         }
         is_first=true
-        bootable=$(found_bootable)
+        bootable=$(find_bootable)
 
     }
 
@@ -167,11 +188,12 @@ fix_default_gw() {
 }
 
 do_mount() {
-    bootable=$(found_bootable)
-    [ -b "$bootable" ] && {
-        mount "$bootable" "$MOUNT_PATH"
-        echo "mount bootable $bootable on $MOUNT_PATH"
-        ln -sf $bootable $BOOT_DEVICE_LINK
+    rootfs_path=$(find_root)
+    rootfs_path=${rootfs_path:-$bootable}
+    [ -b "$rootfs_path" ] && {
+        mount "$rootfs_path" "$MOUNT_PATH"
+        echo "mount root $rootfs_path on $MOUNT_PATH"
+        ln -sf $rootfs_path $ROOT_DEVICE_LINK
     }
 }
 

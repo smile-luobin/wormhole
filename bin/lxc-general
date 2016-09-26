@@ -263,7 +263,7 @@ EOF
     cat <<EOF > $config_path/config
 lxc.arch = $arch
 lxc.utsname = $utsname
-lxc.rootfs = $bootable_part
+lxc.rootfs = $root_part
 
 lxc.autodev = 1
 
@@ -444,10 +444,11 @@ trap revert SIGHUP SIGINT SIGTERM
 #  }')
 #  [ -z "$device" ] && { echo "can't found user boot device"; exit 1; }
 #  user_device="${device% *}"
-#  bootable_part="${device#* }"
+#  root_part="${device#* }"
 user_device=$(readlink -f $DEVICE_LINK)
 
-bootable_part=$(readlink -f $BOOT_DEVICE_LINK || fdisk -l $user_device | awk '/^\/dev\//&&$2=="*"{print $1}')
+root_part=$(readlink -f $ROOT_DEVICE_LINK)
+
 
 # Both host and container support selinux
 sestatus && chroot $rootfs_path sestatus && {
