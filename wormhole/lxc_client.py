@@ -236,6 +236,8 @@ class LXCClient(object):
 
     def remove_interfaces(self, name, network_info):
         for vif in network_info:
+            if_local_name = 'tap%s' % vif['id'][:11]
+            utils.trycmd('ip', 'link', 'del', if_local_name, run_as_root=True)
             _file = lxc_net_conf_file(name, vif['id'][:11])
             LOG.debug("remove net conf %s\n", vif['id'][:11])
             if os.path.isfile(_file):

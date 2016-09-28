@@ -585,29 +585,23 @@ class ContainerController(wsgi.Application):
         return { "logs": self.manager.logs(self.container['id']) }
 
     def status(self, request):
-        extra_msg = {}
-        extra_code = 0
-        code = 1
         try:
             images = self.manager.images()
             if images:
                 containers = self.manager.list(all=True)
                 if containers:
-                    code = 4
                     status = containers[0]['status']
-                    extra_code = (STATUS_CODE_MAP + [status]).index(status.upper())
-                    extra_msg = {
-                        'name': containers[0]['name'],
-                        'status' : status
-                    }
+                    code = ([k for k in STATE_MAP if STATE_MAP[k] == status.upper()]
+                                  or [UNKNOWN])[0]
                 else:
-                    code = 3
-            else: code = 2
+                    code = CONTAINER_NOT_FOUND
+            else: code = IMAGE_NOT_EXIST
         except Exception as e:
+            code = MANAGER_NOT_START
             LOG.error(repr(traceback.format_exception(*sys.exc_info())))
         return { "status":
-                    {  "code" : code + extra_code,
-                       "message": STATUS_MESSAGE_MAP[code]%extra_msg
+                    {  "code" : code,
+                       "message": STATE_MAP[code]
                     }
                }
 

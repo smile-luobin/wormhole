@@ -1,10 +1,27 @@
-STATUS_MESSAGE_MAP = {
-    1 : "Container manager not started",
-    2 : "No image exists",
-    3 : "No container exists",
-    4 : "Container %(name)s is %(status)s"
+MANAGER_NOT_START = 1
+IMAGE_NOT_EXIST = 2
+CONTAINER_NOT_FOUND = 3
+STOPPED = 4
+RUNNING = 5
+FROZEN = 6
+THAWED = 7
+STOPPING = 8
+ABORTING = 9
+STARTING = 10
+FREEZING = 11
+UNKNOWN = 0
+
+STATE_MAP = {
+        MANAGER_NOT_START: "Container manager not started",
+        IMAGE_NOT_EXIST : "No image exists",
+        CONTAINER_NOT_FOUND : "No container exists",
+        STOPPED: "STOPPED",  
+        RUNNING: "RUNNING", 
+        FROZEN: "FROZEN", 
+        THAWED: "THAWED",
+        STOPPING: "STOPPING", 
+        ABORTING: "ABORTING", 
+        STARTING: "STARTING", 
+        FREEZING: "FREEZING",
+        UNKNOWN: "UNKNOWN"
 }
-STATUS_CODE_MAP = [
-    "STOPPED",  "RUNNING", "FROZEN", "THAWED",
-    "STOPPING", "ABORTING", "STARTING", "FREEZING",
-]

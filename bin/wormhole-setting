@@ -15,24 +15,36 @@ eval NEUTRON_CONFIG_FILE=$(awk '{FS="="}/^NEUTRON_AGENT_CONFFILE_URL=/{found=$2}
 NEUTRON_CONFIG_FILE=${NEUTRON_CONFIG_FILE:-/home/neutron_agent_conf.txt}
 
 
-JSON_FILE=${WORMHOLE_SETTING_FILE:-/var/lib/wormhole/settings.json}
+WORMHOLE_SETTING_FILE=${WORMHOLE_SETTING_FILE:-/var/lib/wormhole/settings.json}
 
 _get_data() {
   url=http://169.254.169.254/latest/user-data
   curl -m 3 $url && curl $url -i 2>/dev/null | awk  '{exit $2>=300}'
 }
-while [ ! -f "$JSON_FILE" -a ! -f "$NEUTRON_CONFIG_FILE" ] ; do
+while [ ! -f "$WORMHOLE_SETTING_FILE" -a ! -f "$NEUTRON_CONFIG_FILE" ] ; do
   _get_data && {
-    _get_data > $JSON_FILE
+    _get_data > $WORMHOLE_SETTING_FILE
     break
   }
   
   sleep 1
 done
 
-[ -f "$JSON_FILE" ] && {
+[ ! -f "$NEUTRON_CONFIG_FILE" ] &&
+[ -f "$WORMHOLE_SETTING_FILE" ] && {
     echo "$(date) FOUND JSON HERE: -----------"
-    cat $JSON_FILE | python -mjson.tool
-}
-echo -e "end at $(date)\n"
+    cat $WORMHOLE_SETTING_FILE | python -mjson.tool
+    echo extract config from $WORMHOLE_SETTING_FILE
+    touch $NEED_CREATE_CONTAINER
+    python -c "
+import json
+setting = json.load(open('$WORMHOLE_SETTING_FILE'));
 
+neutron_fields = ['rabbit_userid', 'rabbit_password', 'rabbit_host', 'host', 'tunnel_cidr', 'route_gw']
+
+with open('$NEUTRON_CONFIG_FILE', 'w') as f:f.write('\n'.join('%s=%s'%(k,v)for k,v in setting.items()if k in neutron_fields and setting.get(k)))
+"
+}
+
+$NEUTRON_CONFIG_BIN >>/var/log/neutron/neutron-agent-config.log 2>&1
+echo -e "end at $(date)\n"

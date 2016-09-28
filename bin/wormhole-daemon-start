@@ -125,35 +125,10 @@ wait_load_image() {
 
 }
 
-wait_load_config() {
-    echo load config
-
-    while ! [ -e "$WORMHOLE_SETTING_FILE" ] && ! [ -e "$NEUTRON_CONFIG_FILE" ]; do
-        sleep 1
-    done
-
-    [ zfalse = z${is_first} ] && return
-
-    [ ! -e "$NEUTRON_CONFIG_FILE" ] &&
-    [ -e "$WORMHOLE_SETTING_FILE" ] && {
-        # extract config
-        is_create=true
-        echo extract config from $WORMHOLE_SETTING_FILE
-        python -c "
-import json
-setting = json.load(open('$WORMHOLE_SETTING_FILE'));
-
-neutron_fields = ['rabbit_userid', 'rabbit_password', 'rabbit_host', 'host', 'tunnel_cidr', 'route_gw']
-
-with open('$NEUTRON_CONFIG_FILE', 'w') as f:f.write('\n'.join('%s=%s'%(k,v)for k,v in setting.items()if k in neutron_fields and setting.get(k)))
-
-"
-    true
-    }
-    $NEUTRON_CONFIG_BIN >>/var/log/neutron-agent-config.log 2>&1
-}
 
 create_start_container() {
+    [ -f "$NEED_CREATE_CONTAINER" ] && is_create=true && rm "$NEED_CREATE_CONTAINER"
+
     [ z$is_create = ztrue -o z$is_reboot = ztrue ]  || return
 
     while ! netstat -tln|grep :$PORT ;  do sleep .5 ; done
@@ -190,6 +165,7 @@ fix_default_gw() {
 do_mount() {
     rootfs_path=$(find_root)
     rootfs_path=${rootfs_path:-$bootable}
+    echo "try root path $rootfs_path"
     [ -b "$rootfs_path" ] && {
         mount "$rootfs_path" "$MOUNT_PATH"
         echo "mount root $rootfs_path on $MOUNT_PATH"
@@ -225,7 +201,7 @@ echo
 iptables-save | grep $PORT || iptables -A IN_public_allow -p tcp -m tcp --dport $PORT -m conntrack --ctstate NEW -j ACCEPT
 
 
-(bin/wormhole-setting&)
+bin/wormhole-setting&
 
 check_reboot
 check_image_first
@@ -236,10 +212,10 @@ wormhole_start_bg
 find_data_volume
 wait_load_image
 
-wait_load_config
-
 # mount
 do_mount
+
+wait
 
 create_start_container
 

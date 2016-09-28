@@ -126,11 +126,7 @@ class GenericVIFDriver(object):
                 _("Vif_type parameter must be present "
                   "for this vif_driver implementation"))
 
-        if vif_type == network_model.VIF_TYPE_OVS:
-            self.unplug_ovs_hybrid(instance, vif)
-        else:
-            raise exception.WormholeException(
-                _("Unexpected vif_type=%s") % vif_type)
+        self.unplug_ovs_hybrid(instance, vif)
 
     def unplug_ovs_hybrid(self, instance, vif):
         """UnPlug using hybrid strategy
@@ -226,7 +222,8 @@ class GenericVIFDriver(object):
             LOG.exception(_("Failed to attach vif: %s"), str(e.message))
 
     def get_bridge_name(self, vif):
-        return vif['network']['bridge']
+        return 'br-int'
+        #return vif['network']['bridge']
 
     def get_ovs_interfaceid(self, vif):
         return vif.get('ovs_interfaceid') or vif['id']
