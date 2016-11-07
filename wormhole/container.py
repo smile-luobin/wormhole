@@ -440,7 +440,7 @@ class ContainerController(wsgi.Application):
             container_id = self.container['id']
             self.vif_driver.unplug(container_id, vif)
             self.manager.remove_interfaces(container_id, [vif])
-            self._save_interface(self, action='del')
+            self._save_interface(vif, action='del')
         return webob.Response(status_int=200)
 
     def attach_interface(self, request, vif):
@@ -530,7 +530,8 @@ class ContainerController(wsgi.Application):
             self._volume_mapping[volume_id] = device
             utils.trycmd('ln', '-sf', device, volume_link_path(volume_id))
         self._mount_path[device] = mountpoint
-        self.manager.attach_volume(self.container['id'], device, mountpoint, static)
+        if mountpoint != 'none': 
+            self.manager.attach_volume(self.container['id'], device, mountpoint, static)
 
     def attach_volume(self, request, volume, device, mount_device):
         """ attach volume. """
@@ -550,7 +551,7 @@ class ContainerController(wsgi.Application):
             dev_path = os.path.realpath(link_file)
             # ignore the manager root volume
             if not dev_path.startswith(self.root_dev_path):
-                LOG.debug(_("Dettach volume %s"), volume_id)
+                LOG.debug(_("Detach volume %s"), volume_id)
                 if ensure:
                     # ensure the device path is not visible in host/container
                     if check_dev_exist(dev_path):
@@ -558,8 +559,8 @@ class ContainerController(wsgi.Application):
                     utils.trycmd('bash', '-c', 'echo 1 > /sys/block/%s/device/delete' % dev_path.replace('/dev/',''))
                 os.remove(link_file)
                 self._volume_mapping.pop(volume_id)
-                self.manager.dettach_volume(self.container['id'], dev_path,
-                                            self._mount_path.get(device,''), static)
+                self.manager.detach_volume(self.container['id'], dev_path,
+                                            self._mount_path.get(dev_path,''), static)
 
     def create_image(self, request, image_name, image_id):
         """ Create a image from the container. """

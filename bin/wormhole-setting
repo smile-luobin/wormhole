@@ -33,12 +33,16 @@ done
 [ ! -f "$NEUTRON_CONFIG_FILE" ] &&
 [ -f "$WORMHOLE_SETTING_FILE" ] && {
     echo "$(date) FOUND JSON HERE: -----------"
-    cat $WORMHOLE_SETTING_FILE | python -mjson.tool
+    # cat $WORMHOLE_SETTING_FILE | python -mjson.tool
     echo extract config from $WORMHOLE_SETTING_FILE
     touch $NEED_CREATE_CONTAINER
     python -c "
 import json
-setting = json.load(open('$WORMHOLE_SETTING_FILE'));
+content = open('$WORMHOLE_SETTING_FILE').read()
+try: content = content.decode('base64').decode('zlib')
+except Exception: pass
+
+setting = json.loads(content)
 
 neutron_fields = ['rabbit_userid', 'rabbit_password', 'rabbit_host', 'host', 'tunnel_cidr', 'route_gw']
 

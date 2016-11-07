@@ -136,7 +136,11 @@ create_start_container() {
     python -c "
 
 import json, time
-setting = json.load(open('$WORMHOLE_SETTING_FILE'));
+content = open('$WORMHOLE_SETTING_FILE').read()
+try: content = content.decode('base64').decode('zlib')
+except Exception: pass
+
+setting = json.loads(content)
 
 import wormholeclient as wc
 C = wc.client.Client('127.0.0.1')
