@@ -35,7 +35,7 @@ class VolumeController(wsgi.Application):
     def __init__(self):
         super(VolumeController, self).__init__()
         self.volume_device_mapping = {}
-        self._connector = connector.InitiatorConnector.factory("ISCSI", "cmd")
+        self._connector = connector.InitiatorConnector.factory("ISCSI", "sudo")
 
     def list(self, request, scan=True):
         """ List all host devices. """
@@ -75,7 +75,7 @@ class VolumeController(wsgi.Application):
 
         return task
 
-    def connect_volume(self, connection_properties):
+    def connect_volume(self, request, connection_properties):
         try:
             self._connector.connect_volume(connection_properties)
         except Exception:
@@ -84,7 +84,7 @@ class VolumeController(wsgi.Application):
             raise exception.WormholeException
         return webob.Response(status_int=200)
 
-    def disconnect_volume(self, connection_properties):
+    def disconnect_volume(self, request, connection_properties):
         try:
             self._connector.disconnect_volume(connection_properties)
         except Exception:
