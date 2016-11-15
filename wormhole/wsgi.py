@@ -29,8 +29,8 @@ import eventlet.wsgi
 import greenlet
 import six
 
-from oslo import i18n
-from oslo.config import cfg
+import oslo_i18n as i18n
+from oslo_config import cfg
 from paste import deploy
 import routes.middleware
 import webob.dec
@@ -48,19 +48,20 @@ wsgi_opts = [
                default="wormhole-paste.ini",
                help='File name for the paste.deploy config for wormhole-api'),
     cfg.StrOpt('wsgi_log_format',
-            default='%(client_ip)s "%(request_line)s" status: %(status_code)s'
-                    ' len: %(body_length)s time: %(wall_seconds).7f',
-            help='A python format string that is used as the template to '
-                 'generate log lines. The following values can be formatted '
-                 'into it: client_ip, date_time, request_line, status_code, '
-                 'body_length, wall_seconds.'),
+               default='%(client_ip)s "%(request_line)s" status: %('
+                       'status_code)s'
+                       ' len: %(body_length)s time: %(wall_seconds).7f',
+               help='A python format string that is used as the template to '
+                    'generate log lines. The following values can be formatted '
+                    'into it: client_ip, date_time, request_line, status_code, '
+                    'body_length, wall_seconds.'),
     cfg.StrOpt('ssl_ca_file',
                help="CA certificate file to use to verify "
                     "connecting clients"),
     cfg.StrOpt('ssl_cert_file',
-                    help="SSL certificate of API server"),
+               help="SSL certificate of API server"),
     cfg.StrOpt('ssl_key_file',
-                    help="SSL private key of API server"),
+               help="SSL private key of API server"),
     cfg.IntOpt('tcp_keepidle',
                default=600,
                help="Sets the value of TCP_KEEPIDLE in seconds for each "
@@ -83,7 +84,7 @@ wsgi_opts = [
                     "If an incoming connection is idle for this number of "
                     "seconds it will be closed. A value of '0' means "
                     "wait forever."),
-    ]
+]
 CONF = cfg.CONF
 CONF.register_opts(wsgi_opts)
 
@@ -115,8 +116,8 @@ class Server(object):
     default_pool_size = CONF.wsgi_default_pool_size
 
     def __init__(self, name, app, host='0.0.0.0', port=0, pool_size=None,
-                       protocol=eventlet.wsgi.HttpProtocol, backlog=128,
-                       use_ssl=False, max_url_len=None):
+                 protocol=eventlet.wsgi.HttpProtocol, backlog=128,
+                 use_ssl=False, max_url_len=None):
         """Initialize, but do not start, a WSGI server.
 
         :param name: Pretty name for logging.
@@ -145,7 +146,7 @@ class Server(object):
 
         if backlog < 1:
             raise exception.InvalidInput(
-                    reason='The backlog must be more than 1')
+                reason='The backlog must be more than 1')
 
         bind_addr = (host, port)
         # TODO(dims): eventlet's green dns/socket module does not actually
@@ -191,21 +192,21 @@ class Server(object):
 
                 if cert_file and not os.path.exists(cert_file):
                     raise RuntimeError(
-                          _("Unable to find cert_file : %s") % cert_file)
+                        _("Unable to find cert_file : %s") % cert_file)
 
                 if ca_file and not os.path.exists(ca_file):
                     raise RuntimeError(
-                          _("Unable to find ca_file : %s") % ca_file)
+                        _("Unable to find ca_file : %s") % ca_file)
 
                 if key_file and not os.path.exists(key_file):
                     raise RuntimeError(
-                          _("Unable to find key_file : %s") % key_file)
+                        _("Unable to find key_file : %s") % key_file)
 
                 if self._use_ssl and (not cert_file or not key_file):
                     raise RuntimeError(
-                          _("When running server in SSL mode, you must "
-                            "specify both a cert_file and key_file "
-                            "option value in your configuration file"))
+                        _("When running server in SSL mode, you must "
+                          "specify both a cert_file and key_file "
+                          "option value in your configuration file"))
                 ssl_kwargs = {
                     'server_side': True,
                     'certfile': cert_file,
@@ -229,8 +230,8 @@ class Server(object):
                 # This option isn't available in the OS X version of eventlet
                 if hasattr(socket, 'TCP_KEEPIDLE'):
                     dup_socket.setsockopt(socket.IPPROTO_TCP,
-                                    socket.TCP_KEEPIDLE,
-                                    CONF.tcp_keepidle)
+                                          socket.TCP_KEEPIDLE,
+                                          CONF.tcp_keepidle)
 
             except Exception:
                 with excutils.save_and_reraise_exception():
@@ -250,7 +251,7 @@ class Server(object):
             'debug': False,
             'keepalive': CONF.wsgi_keep_alive,
             'socket_timeout': self.client_socket_timeout
-            }
+        }
 
         if self._max_url_len:
             wsgi_kwargs['url_length_limit'] = self._max_url_len
@@ -360,7 +361,7 @@ class Request(webob.Request):
                 content_type = self.accept.best_match(SUPPORTED_CONTENT_TYPES)
 
             self.environ['wormhole.best_content_type'] = (content_type or
-                                                      'application/json')
+                                                          'application/json')
 
         return self.environ['wormhole.best_content_type']
 
@@ -395,7 +396,7 @@ class Request(webob.Request):
         if not self.accept_language:
             return None
         return self.accept_language.best_match(
-                i18n.get_available_languages())
+            i18n.get_available_languages())
 
 
 def best_match_language(req):
@@ -507,13 +508,14 @@ class Middleware(BaseApplication):
         but using the kwarg passing it shouldn't be necessary.
 
         """
+
         def _factory(app):
             return cls(app, **local_config)
+
         return _factory
 
     def __init__(self, application):
         self.application = application
-
 
     def process_request(self, req):
         """Called on each request.
@@ -688,7 +690,7 @@ class ComposableRouter(Router):
     def __init__(self, mapper=None):
         if mapper is None:
             mapper = routes.Mapper()
-        #self.add_routes(mapper)
+        # self.add_routes(mapper)
         super(ComposableRouter, self).__init__(mapper)
 
     def add_routes(self, mapper):
@@ -720,7 +722,6 @@ class TextDeserializer(ActionDispatcher):
 
 
 class JSONDeserializer(TextDeserializer):
-
     def _from_json(self, datastring):
         try:
             return jsonutils.loads(datastring)
@@ -733,7 +734,6 @@ class JSONDeserializer(TextDeserializer):
 
 
 class XMLDeserializer(TextDeserializer):
-
     def __init__(self, metadata=None):
         """:param metadata: information needed to deserialize xml into
            a dictionary.
@@ -772,8 +772,8 @@ class XMLDeserializer(TextDeserializer):
         """Search a nodes children for the first child with a given name."""
         for node in parent.childNodes:
             if (node.localName == name and
-                node.namespaceURI and
-                    node.namespaceURI == namespace):
+                    node.namespaceURI and
+                        node.namespaceURI == namespace):
                 return node
         return None
 
@@ -822,7 +822,6 @@ class XMLDeserializer(TextDeserializer):
 
 
 class MetadataXMLDeserializer(XMLDeserializer):
-
     def extract_metadata(self, metadata_node):
         """Marshal the metadata attribute of a parsed request."""
         metadata = {}
@@ -851,7 +850,6 @@ class JSONDictSerializer(DictSerializer):
 
 
 class XMLDictSerializer(DictSerializer):
-
     def __init__(self, metadata=None, xmlns=None):
         """:param metadata: information needed to deserialize xml into
            a dictionary.
@@ -959,6 +957,7 @@ def serializers(**serializers):
             func.wsgi_serializers = {}
         func.wsgi_serializers.update(serializers)
         return func
+
     return decorator
 
 
@@ -975,6 +974,7 @@ def deserializers(**deserializers):
             func.wsgi_deserializers = {}
         func.wsgi_deserializers.update(deserializers)
         return func
+
     return decorator
 
 
@@ -989,6 +989,7 @@ def response(code):
     def decorator(func):
         func.wsgi_code = code
         return func
+
     return decorator
 
 
@@ -1125,11 +1126,12 @@ class ResponseObject(object):
 
         return self._headers.copy()
 
+
 # Environment variable used to pass the request params
 PARAMS_ENV = 'wormhole.params'
 
-class Application(BaseApplication):
 
+class Application(BaseApplication):
     @webob.dec.wsgify()
     def __call__(self, req):
         arg_dict = req.environ['wsgiorg.routing_args'][1]
@@ -1324,6 +1326,7 @@ class JsonBodyMiddleware(Middleware):
     an underscore.
 
     """
+
     def process_request(self, request):
         # Abort early if we don't have any work to do
         params_json = request.body
@@ -1358,6 +1361,7 @@ class JsonBodyMiddleware(Middleware):
 
         request.environ[PARAMS_ENV] = params
 
+
 class NormalizingFilter(Middleware):
     """Middleware filter to handle URL normalization."""
 
@@ -1365,9 +1369,8 @@ class NormalizingFilter(Middleware):
         """Normalizes URLs."""
         # Removes a trailing slash from the given path, if any.
         if (len(request.environ['PATH_INFO']) > 1 and
-                request.environ['PATH_INFO'][-1] == '/'):
+                    request.environ['PATH_INFO'][-1] == '/'):
             request.environ['PATH_INFO'] = request.environ['PATH_INFO'][:-1]
         # Rewrites path to root if no path is given.
         elif not request.environ['PATH_INFO']:
             request.environ['PATH_INFO'] = '/'
-

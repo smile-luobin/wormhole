@@ -1,6 +1,6 @@
 import sys
 
-from oslo.config import cfg
+from oslo_config import cfg
 import webob.exc
 
 from .i18n import _

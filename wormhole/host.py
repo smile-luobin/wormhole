@@ -10,7 +10,7 @@ import base64
 LOG = log.getLogger(__name__)
 
 import os
-from oslo.config import cfg
+from oslo_config import cfg
 CONF = cfg.CONF
 
 class HostController(wsgi.Application):

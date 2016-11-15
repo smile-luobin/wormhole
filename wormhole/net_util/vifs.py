@@ -21,7 +21,7 @@ from wormhole import exception
 from wormhole.common import utils
 from wormhole.i18n import _
 
-from oslo.config import cfg
+from oslo_config import cfg
 
 from . import linux_net
 from . import model as network_model

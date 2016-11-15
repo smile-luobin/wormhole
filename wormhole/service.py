@@ -2,9 +2,8 @@ import os
 import random
 import sys
 
-from oslo.config import cfg
-from oslo import messaging
-
+from oslo_config import cfg
+import oslo_messaging as messaging
 
 from wormhole import exception
 from wormhole.i18n import _
@@ -13,6 +12,7 @@ from wormhole.common import service
 from wormhole import wsgi
 
 CONF = cfg.CONF
+
 
 class WSGIService(object):
     """Provides ability to launch API from a 'paste' configuration."""
@@ -129,6 +129,7 @@ def wait():
 
 import routes
 import routers
+
 
 def public_app_factory(global_conf, **local_conf):
     return wsgi.ComposingRouter(routes.Mapper(),

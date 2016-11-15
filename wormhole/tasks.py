@@ -18,10 +18,11 @@ class Task(object):
     TASK_SUCCESS = 1
     TASK_ERROR = 2
     FORMAT_MAP = {
-            TASK_DOING: "doing",
-            TASK_SUCCESS: "successful",
-            TASK_ERROR: "error with {}"
+        TASK_DOING: "doing",
+        TASK_SUCCESS: "successful",
+        TASK_ERROR: "error with {}"
     }
+
     def __init__(self, tid, callback, *args, **kwargs):
         self.tid = str(tid)
         self.callback = callback
@@ -50,10 +51,11 @@ class Task(object):
         return self
 
     def status(self):
-        return { "code": self._code,
-                 "message": "Task %s is " % self.tid +
-                        self.FORMAT_MAP.get(self._code, '').format(self._msg),
-                 "task_id": self.tid
+        return {"code": self._code,
+                "message": "Task %s is " % self.tid +
+                           self.FORMAT_MAP.get(self._code, '').format(
+                               self._msg),
+                "task_id": self.tid
                 }
 
     @staticmethod
@@ -68,8 +70,10 @@ class Task(object):
         t._code = t.TASK_ERROR
         return t.status()
 
+
 FAKE_SUCCESS_TASK = Task.success_task()
 FAKE_ERROR_TASK = Task.error_task()
+
 
 class TaskManager(object):
     _task_mapping = {}
@@ -89,13 +93,16 @@ class TaskManager(object):
             raise exception.TaskNotFound(id=task_id)
         return task.status()
 
+
 _tmanger = TaskManager()
 
 addtask = _tmanger.add_task
 
+
 class TaskController(wsgi.Application):
     def query(self, request, task):
         return _tmanger.query_task(task)
+
 
 def create_router(mapper):
     controller = TaskController()

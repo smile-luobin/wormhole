@@ -15,7 +15,7 @@ from wormhole.common import units
 from wormhole.common import timeutils
 from wormhole.common import log as logging
 
-from oslo.config import cfg
+from oslo_config import cfg
 
 CONF = cfg.CONF
 
@@ -29,10 +29,12 @@ CONF.register_opts(utils_opt)
 
 LOG = logging.getLogger(__name__)
 
+
 class UndoManager(object):
     """Provides a mechanism to facilitate rolling back a series of actions
     when an exception is raised.
     """
+
     def __init__(self):
         self.undo_stack = []
 
@@ -55,12 +57,15 @@ class UndoManager(object):
 
             self._rollback()
 
+
 class SmarterEncoder(jsonutils.json.JSONEncoder):
     """Help for JSON encoding dict-like objects."""
+
     def default(self, obj):
         if not isinstance(obj, dict) and hasattr(obj, 'iteritems'):
             return dict(obj.iteritems())
         return super(SmarterEncoder, self).default(obj)
+
 
 def utf8(value):
     """Try to turn a string into utf-8 if possible.
@@ -91,12 +96,12 @@ def execute(*cmd, **kwargs):
     else:
         return processutils.execute(*cmd, **kwargs)
 
+
 def trycmd(*cmd, **kwargs):
     return processutils.trycmd(*cmd, **kwargs)
 
 
 def _calculate_count(size_in_m, blocksize):
-
     # Check if volume_dd_blocksize is valid
     try:
         # Rule out zero-sized/negative/float dd blocksize which
@@ -120,12 +125,12 @@ def _calculate_count(size_in_m, blocksize):
 
     return blocksize, int(count)
 
-def check_for_odirect_support(src, dest, flag='oflag=direct'):
 
+def check_for_odirect_support(src, dest, flag='oflag=direct'):
     # Check whether O_DIRECT is supported
     try:
         execute('dd', 'count=0', 'if=%s' % src, 'of=%s' % dest,
-                      flag, run_as_root=True)
+                flag, run_as_root=True)
         return True
     except processutils.ProcessExecutionError:
         return False
@@ -155,7 +160,6 @@ def copy_volume(srcstr, deststr, size_in_m, blocksize, sync=False, ionice=None):
     if ionice is not None:
         cmd = ['ionice', ionice] + cmd
 
-
     # Perform the copy
     start_time = timeutils.utcnow()
     execute(*cmd, run_as_root=True)
@@ -175,12 +179,14 @@ def copy_volume(srcstr, deststr, size_in_m, blocksize, sync=False, ionice=None):
     mesg = _("Volume copy %(size_in_m).2f MB at %(mbps).2f MB/s")
     LOG.info(mesg % {'size_in_m': size_in_m, 'mbps': mbps})
 
+
 def _generate_salt():
     salt_set = ('abcdefghijklmnopqrstuvwxyz'
                 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
                 '0123456789./')
     salt = 16 * ' '
     return ''.join([random.choice(salt_set) for c in salt])
+
 
 def set_passwd(username, admin_passwd, passwd_data, shadow_data):
     """set the password for username to admin_passwd
@@ -243,7 +249,10 @@ def set_passwd(username, admin_passwd, passwd_data, shadow_data):
 
     return "\n".join(new_shadow)
 
+
 DEVICE_RE = re.compile(r'^x?[a-z]?d?[a-z]$')
+
+
 def list_device():
     """
     Example returns:
@@ -258,7 +267,8 @@ def list_device():
     for dev in dev_out.strip().split('\n'):
         res = dev.split()
         name, disk_type = res[:2]
-        if disk_type == 'disk' and not name.endswith('da') and DEVICE_RE.match(name):
+        if disk_type == 'disk' and not name.endswith('da') and DEVICE_RE.match(
+                name):
             res[0] = "/dev/" + name
             dev_list.append(dict(zip(filter_fields, res)))
     LOG.debug("scan host devices: %s", dev_list)
