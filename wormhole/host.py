@@ -3,7 +3,7 @@ from wormhole import exception
 from wormhole import wsgi
 from wormhole.common import utils
 from wormhole.common import log
-from oslo.utils import importutils
+#from oslo_utils import importutils
 
 import base64
 
