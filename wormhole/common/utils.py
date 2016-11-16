@@ -2,11 +2,13 @@
 
 import math
 import crypt
+import os
 import random
 import re
+import tempfile
 
 from wormhole import exception
-from wormhole.i18n import _
+from wormhole.i18n import _, _LE
 from wormhole.common import jsonutils
 from wormhole.common import processutils
 from wormhole.common import excutils
@@ -273,3 +275,46 @@ def list_device():
             dev_list.append(dict(zip(filter_fields, res)))
     LOG.debug("scan host devices: %s", dev_list)
     return dev_list
+
+
+def robust_file_write(directory, filename, data):
+    """Robust file write.
+
+    Use "write to temp file and rename" model for writing the
+    persistence file.
+
+    :param directory: Target directory to create a file.
+    :param filename: File name to store specified data.
+    :param data: String data.
+    """
+    tempname = None
+    dirfd = None
+    try:
+        dirfd = os.open(directory, os.O_DIRECTORY)
+
+        # write data to temporary file
+        with tempfile.NamedTemporaryFile(prefix=filename,
+                                         dir=directory,
+                                         delete=False) as tf:
+            tempname = tf.name
+            tf.write(data.encode('utf-8'))
+            tf.flush()
+            os.fdatasync(tf.fileno())
+            tf.close()
+
+            # Fsync the directory to ensure the fact of the existence of
+            # the temp file hits the disk.
+            os.fsync(dirfd)
+            # If destination file exists, it will be replaced silently.
+            os.rename(tempname, os.path.join(directory, filename))
+            # Fsync the directory to ensure the rename hits the disk.
+            os.fsync(dirfd)
+    except OSError:
+        with excutils.save_and_reraise_exception():
+            LOG.error(_LE("Failed to write persistence file: %(path)s."),
+                      {'path': os.path.join(directory, filename)})
+            if os.path.isfile(tempname):
+                os.unlink(tempname)
+    finally:
+        if dirfd:
+            os.close(dirfd)

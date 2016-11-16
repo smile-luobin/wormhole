@@ -9,7 +9,7 @@ from wormhole.common import units
 from os_brick.initiator import connector
 from oslo_config import cfg
 from wormhole.common import log
-from wormhole.i18n import _
+from wormhole.i18n import _, _LW
 
 import functools
 import uuid
@@ -25,6 +25,9 @@ sg_opts = [
     cfg.StrOpt('server_port',
                default="9999",
                help='The port of journal server.'),
+    cfg.StrOpt('targets_dir',
+               default='/etc/tgt/storage-gateway.d/',
+               help='The storage-gateway target files dir'),
 ]
 
 CONF.register_opts(sg_opts, 'sg')
@@ -60,8 +63,12 @@ class SGController(wsgi.Application):
             "port": CONF.sg.server_host,
             "device": sg_device
         }
-        utils.execute('sed', '-i', '$a', target_info,
-                      '/etc/tgt/targets.conf', run_as_root=True)
+        targets_dir = CONF.sg.targets_dir
+        target_path = os.path.join(targets_dir, volume_id)
+        if os.path.exists(target_path):
+            LOG.warning(_LW('Target file already exists for volume, '
+                            'found file at: %s'), target_path)
+        utils.robust_file_write(targets_dir, volume_id, target_info)
 
     def enable_sg(self, target_iqn, volume_id, sg_device):
         self._persist_conf(target_iqn, volume_id, sg_device)
@@ -85,19 +92,20 @@ class SGController(wsgi.Application):
                 parsed = line.split()
                 tid = parsed[1]
                 return tid[:-1]
-
         return None
 
-    def _remove_conf(self, target_iqn, volume_id, sg_device):
-        flag = "#target-for-%s" % volume_id
-        # cmd = "sed -i /%s/,+6d /etc/tgt/targets.conf" % flag
-        # os.popen(cmd)
-        utils.execute('sed', '-i', '/%s/,+6d' % flag,
-                      '/etc/tgt/targets.conf', run_as_root=True)
+    def _remove_conf(self, volume_id):
+        target_path = os.path.join(CONF.sg.targets_dir, volume_id)
+        if not os.path.exists(target_path):
+            LOG.warning(_LW('Volume path %s does not exist, '
+                            'nothing to remove.'), target_path)
+            return
+        else:
+            os.unlink(target_path)
 
-    def disable_sg(self, target_iqn, volume_id, sg_device):
+    def disable_sg(self, target_iqn, volume_id):
         self._remove_target(target_iqn)
-        self._remove_conf(target_iqn, volume_id, sg_device)
+        self._remove_conf(volume_id)
 
     def enable_replication(self, **kwargs):
         pass
