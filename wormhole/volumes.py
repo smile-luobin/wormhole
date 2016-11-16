@@ -86,7 +86,7 @@ class VolumeController(wsgi.Application):
 
     def disconnect_volume(self, request, connection_properties):
         try:
-            self._connector.disconnect_volume(connection_properties)
+            self._connector.disconnect_volume(connection_properties, None)
         except Exception:
             msg = _("attach_volume failed")
             LOG.debug(msg)
