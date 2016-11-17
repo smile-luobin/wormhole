@@ -75,6 +75,10 @@ class VolumeController(wsgi.Application):
 
         return task
 
+    def remove_device(self, request, device):
+        utils.remove_device(device)
+        return webob.Response(status_int=200)
+
     def connect_volume(self, request, connection_properties):
         try:
             self._connector.connect_volume(connection_properties)
@@ -112,4 +116,8 @@ def create_router(mapper):
     mapper.connect('/volumes/disconnect_volume',
                    controller=controller,
                    action='disconnect_volume',
+                   conditions=dict(method=['POST']))
+    mapper.connect('/volumes/remove_device',
+                   controller=controller,
+                   action='remove_device',
                    conditions=dict(method=['POST']))

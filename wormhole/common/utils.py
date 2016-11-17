@@ -277,6 +277,35 @@ def list_device():
     return dev_list
 
 
+def echo_scsi_command(path, content):
+    """Used to echo strings to scsi subsystem."""
+
+    args = ["-a", path]
+    kwargs = dict(process_input=content,
+                  run_as_root=True)
+    execute('tee', *args, **kwargs)
+
+
+def flush_device_io(device):
+    """This is used to flush any remaining IO in the buffers."""
+    try:
+        LOG.debug("Flushing IO for device %s", device)
+        execute('blockdev', '--flushbufs', device, run_as_root=True)
+    except Exception as exc:
+        LOG.warning(_("Failed to flush IO buffers prior to removing "))
+
+
+def remove_device(device):
+    path = "/sys/block/%s/device/delete" % device.replace("/dev/", "")
+    if os.path.exists(path):
+        # flush any outstanding IO first
+        flush_device_io(device)
+
+        LOG.debug("Remove SCSI device %(device)s with %(path)s",
+                  {'device': device, 'path': path})
+        echo_scsi_command(path, "1")
+
+
 def robust_file_write(directory, filename, data):
     """Robust file write.
 
